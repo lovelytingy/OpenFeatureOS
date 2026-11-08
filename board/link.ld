@@ -114,6 +114,14 @@ SECTIONS
         __mmu_table_end = .;
     } > DRAM
 
+    /* Primary QVGA (240x320 RGB565) LCD Framebuffer: 153,600 bytes */
+    .framebuffer (NOLOAD) : {
+        . = ALIGN(1024);
+        __framebuffer_start = .;
+        . += 240 * 320 * 2;
+        __framebuffer_end = .;
+    } > DRAM
+
     /* Dynamic memory / kernel heap boundary definitions */
     . = ALIGN(8);
     __heap_start = .;

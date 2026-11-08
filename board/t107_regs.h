@@ -152,6 +152,26 @@
 #define GC9307_WIDTH                240U
 #define GC9307_HEIGHT               320U
 
+/*
+ * Unisoc T107 (UMS9117) LCD Controller (LCDC)
+ * src: Nokia-2660-RE tools/ram_payload/src/baremetal_lcd/payload.c:16-22
+ * src: Nokia-2660-Emulator crates/n2660-core/src/vm.rs:1676-1750
+ */
+#define LCDC_BASE                   0x20800000U
+#define LCDC_CTRL                   REG32(LCDC_BASE + 0x0000U) /* Control: Bit 0 = Enable, Bit 3 = Start Refresh */
+#define LCDC_Y_BASE                 REG32(LCDC_BASE + 0x0024U) /* Framebuffer Base Address (words, >> 2) */
+#define LCDC_SIZE_XY                REG32(LCDC_BASE + 0x002CU) /* Width (15:0) | Height (31:16) */
+#define LCDC_IRQ_CLR                REG32(LCDC_BASE + 0x0114U) /* IRQ Clear: Write 1 to clear refresh done */
+#define LCDC_IRQ_RAW                REG32(LCDC_BASE + 0x011CU) /* IRQ Raw Status: Bit 0 = Refresh Done */
+
+#define LCDC_CTRL_ENABLE            (1U << 0)
+#define LCDC_CTRL_REFRESH_START     (1U << 3)
+#define LCDC_IRQ_REFRESH_DONE       (1U << 0)
+
+#define LCD_WIDTH                   240U
+#define LCD_HEIGHT                  320U
+#define LCD_FB_SIZE                 (LCD_WIDTH * LCD_HEIGHT * 2U) /* 153,600 bytes RGB565 */
+
 /* src: Nokia-2660-RE docs/hardware.md */
 #define GPIO_SPEAKER_PA_EN          31U         /* GPIO 31: Speaker Class-D PA Enable */
 

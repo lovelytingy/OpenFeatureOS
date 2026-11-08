@@ -15,6 +15,8 @@
 #include "timer.h"
 #include "intc.h"
 #include "mmu.h"
+#include "lcdc.h"
+#include "ui_app.h"
 
 extern uint32_t __heap_start;
 extern uint32_t __heap_end;
@@ -56,6 +58,9 @@ static void torch_beacon_entry(void *parameter)
         rt_kprintf("[HEARTBEAT] Thread pulse #%u | OS Tick: %u | HW Timer: %u ms\n",
                    beat_count, (uint32_t)rt_tick_get(), timer_get_ms());
 
+        /* Update live display status footer with heartbeat tick & uptime */
+        lcdc_update_heartbeat(beat_count, timer_get_ms() / 1000U);
+
         /* Sleep for 1000 ms, yielding CPU to other tasks and idle thread */
         rt_thread_mdelay(1000);
     }
@@ -95,6 +100,9 @@ int main(void)
 {
     /* 1. Optical Sign of Life: 3 flashes confirm RT-Thread OS booted & main thread active */
     torch_blink(3, 80, 80, 0x0F);
+
+    /* 2. Render OpenFeatureOS Boot Splash on GC9307 240x320 LCD */
+    lcdc_draw_boot_splash();
 
     rt_kprintf("\n");
     rt_kprintf("==============================================================\n");
@@ -146,6 +154,9 @@ int main(void)
     } else {
         rt_kprintf("[MAIN] ERROR: Failed to create thread: reporter\n");
     }
+
+    /* Spawn Thread 3: LVGL GUI Feature Phone UI Task */
+    ui_app_init();
 
     rt_kprintf("[MAIN] All kernel threads spawned. Main thread entering supervisor loop.\n");
 

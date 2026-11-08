@@ -24,9 +24,12 @@ CFLAGS         = $(ARCH_FLAGS) \
                  -ffreestanding -fno-builtin -nostdlib \
                  -fno-tree-loop-distribute-patterns \
                  -D__RT_KERNEL_SOURCE__ \
+                 -DLV_CONF_INCLUDE_SIMPLE \
                  -Iinclude -Iboard \
                  -Ithird_party/rt-thread/include \
-                 -Ithird_party/rt-thread/libcpu/arm/cortex-a
+                 -Ithird_party/rt-thread/libcpu/arm/cortex-a \
+                 -Ithird_party \
+                 -Ithird_party/lvgl
 
 # Assembly flags
 AFLAGS         = $(ARCH_FLAGS) \
@@ -34,7 +37,9 @@ AFLAGS         = $(ARCH_FLAGS) \
                  -g \
                  -Iinclude -Iboard \
                  -Ithird_party/rt-thread/include \
-                 -Ithird_party/rt-thread/libcpu/arm/cortex-a
+                 -Ithird_party/rt-thread/libcpu/arm/cortex-a \
+                 -Ithird_party \
+                 -Ithird_party/lvgl
 
 # Linker script and flags
 LDSCRIPT       = board/link.ld
@@ -47,6 +52,20 @@ TARGET_RAW     = $(BUILD_DIR)/openfeatureos.raw
 TARGET_BIN     = $(BUILD_DIR)/openfeatureos.bin
 
 # Sources
+LVGL_SRCS      := $(wildcard third_party/lvgl/src/core/*.c) \
+                 $(wildcard third_party/lvgl/src/draw/*.c) \
+                 $(wildcard third_party/lvgl/src/draw/sw/*.c) \
+                 $(wildcard third_party/lvgl/src/font/*.c) \
+                 $(wildcard third_party/lvgl/src/hal/*.c) \
+                 $(wildcard third_party/lvgl/src/misc/*.c) \
+                 $(wildcard third_party/lvgl/src/widgets/*.c) \
+                 $(wildcard third_party/lvgl/src/extra/layouts/flex/*.c) \
+                 $(wildcard third_party/lvgl/src/extra/layouts/grid/*.c) \
+                 $(wildcard third_party/lvgl/src/extra/themes/default/*.c) \
+                 $(wildcard third_party/lvgl/src/extra/themes/basic/*.c) \
+                 $(wildcard third_party/lvgl/src/extra/widgets/*/*.c) \
+                 third_party/lvgl/src/extra/lv_extra.c
+
 C_SRCS        := $(wildcard src/*.c) $(wildcard board/*.c) \
                  third_party/rt-thread/src/clock.c \
                  third_party/rt-thread/src/components.c \
@@ -65,7 +84,8 @@ C_SRCS        := $(wildcard src/*.c) $(wildcard board/*.c) \
                  third_party/rt-thread/src/klibc/kerrno.c \
                  third_party/rt-thread/src/klibc/kstdio.c \
                  third_party/rt-thread/src/klibc/kstring.c \
-                 third_party/rt-thread/src/klibc/rt_vsnprintf_tiny.c
+                 third_party/rt-thread/src/klibc/rt_vsnprintf_tiny.c \
+                 $(LVGL_SRCS)
 
 ASM_SRCS      := $(wildcard board/*.S) $(wildcard src/*.S)
 
@@ -95,7 +115,7 @@ $(BUILD_DIR)/%.o: %.S | $(BUILD_DIR)
 
 $(TARGET_ELF): $(OBJS) $(LDSCRIPT) | $(BUILD_DIR)
 	@echo "  LD      $@"
-	@$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o $@
+	@$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $@
 	@$(SIZE) $@
 
 $(TARGET_RAW): $(TARGET_ELF)

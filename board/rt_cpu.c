@@ -126,6 +126,80 @@ int memcmp(const void *s1, const void *s2, size_t n)
     return rt_memcmp(s1, s2, n);
 }
 
+size_t strlen(const char *s)
+{
+    return rt_strlen(s);
+}
+
+char *strcpy(char *dest, const char *src)
+{
+    return rt_strcpy(dest, src);
+}
+
+char *strncpy(char *dest, const char *src, size_t n)
+{
+    return rt_strncpy(dest, src, n);
+}
+
+char *strcat(char *dest, const char *src)
+{
+    char *p = dest + rt_strlen(dest);
+    while (*src) {
+        *p++ = *src++;
+    }
+    *p = '\0';
+    return dest;
+}
+
+int strcmp(const char *s1, const char *s2)
+{
+    return rt_strcmp(s1, s2);
+}
+
+int strncmp(const char *s1, const char *s2, size_t n)
+{
+    return rt_strncmp(s1, s2, n);
+}
+
+char *strchr(const char *s, int c)
+{
+    while (*s) {
+        if (*s == (char)c) return (char *)s;
+        s++;
+    }
+    return (c == 0) ? (char *)s : NULL;
+}
+
+char *strstr(const char *haystack, const char *needle)
+{
+    return rt_strstr(haystack, needle);
+}
+
+void *malloc(size_t size)
+{
+    return rt_malloc(size);
+}
+
+void free(void *ptr)
+{
+    rt_free(ptr);
+}
+
+void *realloc(void *ptr, size_t size)
+{
+    return rt_realloc(ptr, size);
+}
+
+int abs(int j)
+{
+    return (j < 0) ? -j : j;
+}
+
+long labs(long j)
+{
+    return (j < 0) ? -j : j;
+}
+
 int rt_vsscanf(const char *buf, const char *fmt, va_list args)
 {
     (void)buf;

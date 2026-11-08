@@ -7,3 +7,7 @@
 [submodule "third_party/rt-thread"]
 	path = third_party/rt-thread
 	url = https://github.com/RT-Thread/rt-thread
+[submodule "third_party/lvgl"]
+	path = third_party/lvgl
+	url = https://github.com/lvgl/lvgl.git
+	branch = release/v8.3

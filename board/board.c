@@ -16,6 +16,7 @@
 #include "intc.h"
 #include "mmu.h"
 #include "torch.h"
+#include "lcdc.h"
 
 extern uint32_t __heap_start;
 extern uint32_t __heap_end;
@@ -63,13 +64,14 @@ static void idle_hook(void)
     const uint32_t ms_per_tick = 1000U / RT_TICK_PER_SECOND;
 
     if (delta_ms >= ms_per_tick) {
-        last_tick_ms = now_ms;
-        /* Trigger software interrupt on timer line for emulator environments */
-        intc_trigger_soft_irq(SPRD_IRQ_TIMER);
-    }
+        uint32_t ticks_to_add = delta_ms / ms_per_tick;
+        last_tick_ms += ticks_to_add * ms_per_tick;
 
-    /* Wait for next event / interrupt */
-    __asm__ volatile ("wfi");
+        /* Trigger software interrupt on timer line to advance RT-Thread ticks in ISR context */
+        for (uint32_t i = 0; i < ticks_to_add; i++) {
+            intc_trigger_soft_irq(SPRD_IRQ_TIMER);
+        }
+    }
 }
 
 /*
@@ -103,15 +105,18 @@ void rt_hw_board_init(void)
             (uint32_t)(uintptr_t)&__heap_end,
             (uint32_t)((uintptr_t)&__heap_end - (uintptr_t)&__heap_start) / 1024U);
 
-    /* 7. Register idle hook */
+    /* 7. Initialize Unisoc UMS9117 Hardware LCD Controller (0x20800000) */
+    lcdc_init();
+
+    /* 8. Register idle hook */
     rt_thread_idle_sethook(idle_hook);
 
-    /* 8. Call RT-Thread auto-initialization table for board components */
+    /* 9. Call RT-Thread auto-initialization table for board components */
 #ifdef RT_USING_COMPONENTS_INIT
     rt_components_board_init();
 #endif
 
-    /* 9. Optical Sign of Life: 2 flashes confirm BSP & MMU initialized */
+    /* 10. Optical Sign of Life: 2 flashes confirm BSP, MMU, & Display initialized */
     torch_blink(2, 60, 60, 0x0F);
 
     /* NOTE: CPU IRQs are unmasked when the first thread starts via rt_hw_context_switch_to() */
