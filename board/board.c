@@ -17,6 +17,9 @@
 #include "mmu.h"
 #include "torch.h"
 #include "lcdc.h"
+#include "pinmap.h"
+#include "gpio.h"
+#include "backlight.h"
 
 extern uint32_t __heap_start;
 extern uint32_t __heap_end;
@@ -105,18 +108,31 @@ void rt_hw_board_init(void)
             (uint32_t)(uintptr_t)&__heap_end,
             (uint32_t)((uintptr_t)&__heap_end - (uintptr_t)&__heap_start) / 1024U);
 
-    /* 7. Initialize Unisoc UMS9117 Hardware LCD Controller (0x20800000) */
+    /* 7. Initialize SoC Pin Multiplexing & Pad Controllers (SPI1, LCM, Keypad) */
+    pinmap_init();
+
+    /* 8. Initialize GPIOs and select Main (Inner 2.8" QVGA) Screen */
+    gpio_init();
+
+    /* 9. Power up SC2720 PMIC Backlight Controller and set brightness to 80% */
+    backlight_init();
+    backlight_set_brightness(80);
+
+    /* 10. Initialize Display Pipeline (SPI1, GC9307 Panel, LCDC DMA Controller) */
     lcdc_init();
 
-    /* 8. Register idle hook */
+    /* 11. Draw initial OpenFeatureOS boot splash to framebuffer and flush to panel */
+    lcdc_draw_boot_splash();
+
+    /* 12. Register idle hook */
     rt_thread_idle_sethook(idle_hook);
 
-    /* 9. Call RT-Thread auto-initialization table for board components */
+    /* 13. Call RT-Thread auto-initialization table for board components */
 #ifdef RT_USING_COMPONENTS_INIT
     rt_components_board_init();
 #endif
 
-    /* 10. Optical Sign of Life: 2 flashes confirm BSP, MMU, & Display initialized */
+    /* 14. Optical Sign of Life: 2 flashes confirm BSP, MMU, & Display initialized */
     torch_blink(2, 60, 60, 0x0F);
 
     /* NOTE: CPU IRQs are unmasked when the first thread starts via rt_hw_context_switch_to() */
