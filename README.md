@@ -6,8 +6,12 @@
 [![RTOS Core: RT-Thread](https://img.shields.io/badge/Kernel-RT--Thread%20(Apache--2.0)-brightgreen.svg)](https://github.com/RT-Thread/rt-thread)
 [![Emulator: N2660Emu](https://img.shields.io/badge/Emulator-N2660Emu%20(MIT)-9cf.svg)](https://github.com/lovelytingy/Nokia-2660-Emulator)
 [![Execution: Volatile DRAM](https://img.shields.io/badge/Execution-Volatile%20DRAM%20(100%25%20Safe)-success.svg)](#execution-model--safety-guarantee)
+[![Status: Active Development](https://img.shields.io/badge/Status-Active%20Development-yellow.svg)](#development-roadmap)
 
 <a href="https://buymeacoffee.com/lovelytingy"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="32"></a>
+
+> [!WARNING]
+> **Active Development Notice**: OpenFeatureOS is currently in active development. Features, hardware drivers, and user interface workflows are undergoing rapid changes. Some features might not work as intended or may be incomplete on certain hardware revisions. Testing feedback, logs, and pull requests are warmly welcomed!
 
 **OpenFeatureOS** is an open-source, lightweight operating system purpose-built for 4G feature phones. It is based on **RT-Thread**, implemented strictly in **C and ARM assembly**, and targets the **Unisoc T107 (UMS9117)** SoC on the **Nokia 2660 Flip (Model TA-1480)**.
 
