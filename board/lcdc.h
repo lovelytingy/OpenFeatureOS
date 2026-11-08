@@ -47,6 +47,7 @@ void lcdc_draw_boot_splash(void);
 void lcdc_draw_boot_splash_static(void);
 void lcdc_update_boot_progress(int progress_pct, const char *status_msg);
 void lcdc_run_boot_splash(uint32_t duration_ms);
+void lcdc_draw_home_screen(void);
 void lcdc_update_heartbeat(uint32_t beat_count, uint32_t uptime_s);
 
 #endif /* LCDC_H_ */

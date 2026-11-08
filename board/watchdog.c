@@ -34,13 +34,8 @@ void watchdog_disable(void)
 
 void watchdog_pet(void)
 {
-    /* Unlock SC2720 PMIC watchdog */
+    /* Keep SC2720 PMIC watchdog safely disabled during volatile DRAM execution */
     pmic_adi_write(SC2720_WDG_LOCK, SC2720_WDG_UNLOCK_KEY);
-
-    /* Reload / pet counter */
-    uint32_t ctrl = pmic_adi_read(SC2720_WDG_CTRL);
-    pmic_adi_write(SC2720_WDG_CTRL, ctrl | SC2720_WDG_CTRL_RST);
-
-    /* Relock watchdog register */
+    pmic_adi_write(SC2720_WDG_CTRL, 0);
     pmic_adi_write(SC2720_WDG_LOCK, (uint16_t)~SC2720_WDG_UNLOCK_KEY);
 }

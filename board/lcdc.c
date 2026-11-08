@@ -436,8 +436,9 @@ void lcdc_flush(void)
     /* 3. Prepare SPI1 for bulk DMA transfer of 76,800 pixels */
     spi_refresh_next(spi);
 
-    /* 4. Trigger LCDC refresh */
-    lcdc->irq.en |= 1U;
+    /* 4. Trigger LCDC refresh with IRQ enable cleared to prevent CPU interrupt storms */
+    lcdc->irq.en = 0U; /* Polling raw status; prevent unhandled INTC assertion */
+    lcdc->irq.clr = 1U;
     lcdc->ctrl |= 8U; /* Bit 3 = Start Refresh */
 
     /* 5. Wait for LCDC refresh completion */
@@ -651,7 +652,74 @@ void lcdc_run_boot_splash(uint32_t duration_ms)
         }
     }
 
-    kprintf("[SPLASH] Boot splash sequence completed (100%%). Launching Home UI.\n");
+    kprintf("[SPLASH] Boot splash sequence completed (100%%). Transitioning to Home UI.\n");
+
+    /* Seamless, instant transition to Feature Phone Home UI right after 100% splash */
+    lcdc_draw_home_screen();
+}
+
+void lcdc_draw_home_screen(void)
+{
+    /* 1. Deep Indigo wallpaper */
+    lcdc_clear(0x08A4); /* #0C1222 */
+
+    /* 2. Top status bar */
+    lcdc_fill_rect(0, 0, LCD_WIDTH, 22, 0x0000);
+    lcdc_draw_string(8, 6, "4G VoLTE", COLOR_CYAN_ACCENT, 0x0000);
+    lcdc_draw_string(100, 6, "00:00", COLOR_WHITE, 0x0000);
+    lcdc_draw_string(195, 6, "100%", COLOR_GREEN, 0x0000);
+    lcdc_fill_rect(0, 22, LCD_WIDTH, 1, 0x1A2B);
+
+    /* 3. Wallpaper Clock card (w=228, h=66 at x=6, y=28) */
+    lcdc_fill_rect(6, 28, 228, 66, 0x10E7);
+    /* Cyan border */
+    lcdc_fill_rect(6, 28, 228, 1, COLOR_CYAN_ACCENT);
+    lcdc_fill_rect(6, 93, 228, 1, COLOR_CYAN_ACCENT);
+    lcdc_fill_rect(6, 28, 1, 66, COLOR_CYAN_ACCENT);
+    lcdc_fill_rect(233, 28, 1, 66, COLOR_CYAN_ACCENT);
+
+    lcdc_draw_string_centered(34, "00:00:01", COLOR_WHITE, 0x10E7);
+    lcdc_draw_string_centered(52, "Sunday, 8 Nov 2026", COLOR_CYAN_ACCENT, 0x10E7);
+    lcdc_draw_string_centered(68, "OpenFeatureOS 4G * DRAM", 0x7473, 0x10E7);
+
+    /* 4. App launcher menu buttons (4 buttons, w=228, h=38 each) */
+    const char *apps[4] = {
+        "[1] Phone Dialer",
+        "[2] Flashlight: [ OFF ]",
+        "[3] System Debug & Specs",
+        "[4] Settings & Display"
+    };
+
+    int start_y = 102;
+    for (int i = 0; i < 4; i++) {
+        int y = start_y + (i * 44);
+        uint16_t bg = (i == 0) ? 0x196B : 0x10E7; /* Highlight first app with focus */
+        uint16_t border = (i == 0) ? COLOR_CYAN_ACCENT : 0x1A2B;
+        lcdc_fill_rect(6, y, 228, 38, bg);
+        /* Border */
+        lcdc_fill_rect(6, y, 228, 1, border);
+        lcdc_fill_rect(6, y + 37, 228, 1, border);
+        lcdc_fill_rect(6, y, 1, 38, border);
+        lcdc_fill_rect(233, y, 1, 38, border);
+        if (i == 0) {
+            /* 2px border for focused item */
+            lcdc_fill_rect(7, y + 1, 226, 1, border);
+            lcdc_fill_rect(7, y + 36, 226, 1, border);
+            lcdc_fill_rect(7, y + 1, 1, 36, border);
+            lcdc_fill_rect(232, y + 1, 1, 36, border);
+        }
+        lcdc_draw_string(16, y + 12, apps[i], COLOR_WHITE, bg);
+    }
+
+    /* 5. Bottom softkey bar */
+    lcdc_fill_rect(0, 296, LCD_WIDTH, 24, 0x0000);
+    lcdc_fill_rect(0, 295, LCD_WIDTH, 1, 0x1A2B);
+    lcdc_draw_string(6, 302, "LSK:Dial", COLOR_CYAN_ACCENT, 0x0000);
+    lcdc_draw_string_centered(302, "OK:Open", COLOR_WHITE, 0x0000);
+    lcdc_draw_string(154, 302, "RSK:Torch", COLOR_CYAN_ACCENT, 0x0000);
+
+    /* 6. Push instantly to panel */
+    lcdc_flush();
 }
 
 void lcdc_update_heartbeat(uint32_t beat_count, uint32_t uptime_s)

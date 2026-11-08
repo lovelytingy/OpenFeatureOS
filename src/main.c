@@ -96,6 +96,9 @@ int main(void)
     rt_kprintf(" Console Port    : UART1 (1.8V TTL @ 115200 8N1)\n");
     rt_kprintf("==============================================================\n");
 
+    /* Physical sign-of-life on hardware: two quick flashlight pulses */
+    torch_blink(2, 60, 60, 0x0F);
+
     /* Mark successful RTOS boot stage in DRAM mailbox */
     REG32(T107_DRAM_MAILBOX + 0x0CU) = 0x52545430U; /* 'RTT0' */
     REG32(T107_DRAM_MAILBOX + 0x10U) = 0x00000001U; /* Status: Success */

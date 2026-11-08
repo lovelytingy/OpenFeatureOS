@@ -29,8 +29,10 @@ static void disp_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
         }
     }
 
-    /* Flush primary hardware framebuffer to GC9307 display panel */
-    lcdc_flush();
+    /* Flush primary hardware framebuffer to GC9307 display panel when full frame chunking finishes */
+    if (lv_disp_flush_is_last(drv)) {
+        lcdc_flush();
+    }
 
     /* Inform LVGL that flushing is complete */
     lv_disp_flush_ready(drv);

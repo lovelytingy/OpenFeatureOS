@@ -170,6 +170,9 @@ undef_handler:
     ldr     r0, =DRAM_MAILBOX
     ldr     r1, =0xDEAD0001     /* Crash Code: Undefined Instruction */
     str     r1, [r0, #0x10]
+    ldr     r2, =0x40608df4     /* Light torch solid on fatal exception */
+    ldr     r3, =0x800F
+    str     r3, [r2]
 1:  wfi
     b       1b
 
@@ -184,6 +187,9 @@ pabt_handler:
     ldr     r0, =DRAM_MAILBOX
     ldr     r1, =0xDEAD0003     /* Crash Code: Prefetch Abort */
     str     r1, [r0, #0x10]
+    ldr     r2, =0x40608df4     /* Light torch solid on fatal exception */
+    ldr     r3, =0x800F
+    str     r3, [r2]
 1:  wfi
     b       1b
 
@@ -193,6 +199,9 @@ dabt_handler:
     ldr     r0, =DRAM_MAILBOX
     ldr     r1, =0xDEAD0004     /* Crash Code: Data Abort */
     str     r1, [r0, #0x10]
+    ldr     r2, =0x40608df4     /* Light torch solid on fatal exception */
+    ldr     r3, =0x800F
+    str     r3, [r2]
 1:  wfi
     b       1b
 
@@ -202,6 +211,9 @@ hyp_handler:
     ldr     r0, =DRAM_MAILBOX
     ldr     r1, =0xDEAD0005     /* Crash Code: Hypervisor Trap */
     str     r1, [r0, #0x10]
+    ldr     r2, =0x40608df4     /* Light torch solid on fatal exception */
+    ldr     r3, =0x800F
+    str     r3, [r2]
 1:  wfi
     b       1b
 
