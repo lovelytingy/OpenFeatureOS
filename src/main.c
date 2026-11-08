@@ -93,6 +93,9 @@ static void sys_reporter_entry(void *parameter)
  */
 int main(void)
 {
+    /* 1. Optical Sign of Life: 3 flashes confirm RT-Thread OS booted & main thread active */
+    torch_blink(3, 80, 80, 0x0F);
+
     rt_kprintf("\n");
     rt_kprintf("==============================================================\n");
     rt_kprintf("       ____                   ______            __            \n");

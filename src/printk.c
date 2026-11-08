@@ -11,9 +11,10 @@
 /* src: Nokia-2660-RE docs/uart-serial-interface.md */
 void kputc(char c)
 {
-    /* Poll until TX FIFO is not full: bits [15:8] of STS1 hold TX FIFO count */
-    while ((UART1_STS1 & 0xFF00U) >= 0x1000U) {
-        /* Busy wait */
+    /* Poll until TX FIFO is not full with timeout protection (never hang if UART unplugged) */
+    uint32_t timeout = 50000U;
+    while (((UART1_STS1 & 0xFF00U) >= 0x1000U) && --timeout) {
+        /* Busy wait with timeout */
     }
     UART1_TXD = (uint32_t)c;
 }

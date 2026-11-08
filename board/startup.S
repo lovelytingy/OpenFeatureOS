@@ -235,10 +235,10 @@ rt_hw_context_switch_interrupt_do:
     str     r1, [r0]            /* Clear rt_thread_switch_interrupt_flag */
 
     /* Transfer saved context from IRQ stack to preempted thread's SVC stack */
-    mov     r0, sp              /* r0 = pointer to saved r0-r3 on IRQ stack */
+    mov     r1, sp              /* r1 = pointer to saved r0-r3 on IRQ stack */
     add     sp, sp, #(4 * 4)    /* Advance IRQ sp past r0-r3 */
     ldmfd   sp!, {r4-r12, lr}   /* Restore r4-r12, lr_irq from IRQ stack */
-    mrs     r0, spsr            /* Save interrupted thread's CPSR into r0 (preserves r6) */
+    mrs     r0, spsr            /* Save interrupted thread's CPSR into r0 */
     sub     r2, lr, #4          /* Interrupted thread's PC into r2 */
 
     /* Switch CPU to Supervisor (SVC) mode with interrupts masked */
@@ -247,8 +247,8 @@ rt_hw_context_switch_interrupt_do:
     /* Push preempted thread's full register frame onto its SVC stack */
     stmfd   sp!, {r2}           /* PC */
     stmfd   sp!, {r4-r12, lr}   /* LR, R12-R4 */
-    ldmfd   r0, {r1-r4}         /* Load original task r0-r3 from r0 */
-    stmfd   sp!, {r1-r4}        /* R3-R0 */
+    ldmfd   r1, {r5-r8}         /* Load original task r0-r3 from r1 into scratch r5-r8 */
+    stmfd   sp!, {r5-r8}        /* R3-R0 onto SVC stack */
     stmfd   sp!, {r0}           /* CPSR */
 
     /* Store updated SVC SP into preempted thread's TCB: *rt_interrupt_from_thread = sp */

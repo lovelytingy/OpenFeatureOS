@@ -15,6 +15,7 @@
 #include "timer.h"
 #include "intc.h"
 #include "mmu.h"
+#include "torch.h"
 
 extern uint32_t __heap_start;
 extern uint32_t __heap_end;
@@ -41,6 +42,7 @@ static void timer_tick_isr(uint32_t irq, void *data)
 {
     (void)irq;
     (void)data;
+    last_tick_ms = timer_get_ms();
     rt_tick_increase();
 }
 
@@ -61,13 +63,9 @@ static void idle_hook(void)
     const uint32_t ms_per_tick = 1000U / RT_TICK_PER_SECOND;
 
     if (delta_ms >= ms_per_tick) {
-        uint32_t ticks_to_add = delta_ms / ms_per_tick;
-        last_tick_ms += ticks_to_add * ms_per_tick;
-
-        /* Trigger software interrupt on timer line to advance RT-Thread ticks in ISR context */
-        for (uint32_t i = 0; i < ticks_to_add; i++) {
-            intc_trigger_soft_irq(SPRD_IRQ_TIMER);
-        }
+        last_tick_ms = now_ms;
+        /* Trigger software interrupt on timer line for emulator environments */
+        intc_trigger_soft_irq(SPRD_IRQ_TIMER);
     }
 
     /* Wait for next event / interrupt */
@@ -113,8 +111,9 @@ void rt_hw_board_init(void)
     rt_components_board_init();
 #endif
 
-    /* 9. Unmask CPU IRQs */
-    interrupts_enable();
+    /* 9. Optical Sign of Life: 2 flashes confirm BSP & MMU initialized */
+    torch_blink(2, 60, 60, 0x0F);
 
+    /* NOTE: CPU IRQs are unmasked when the first thread starts via rt_hw_context_switch_to() */
     kprintf("[BOARD] Board initialization completed successfully.\n");
 }

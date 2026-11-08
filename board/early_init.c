@@ -6,6 +6,7 @@
 #include "t107_regs.h"
 #include "printk.h"
 #include "torch.h"
+#include "watchdog.h"
 
 /* Send BSL_REP_ACK (0x80) back to host via FDL1 in SRAM (0x00006c23) */
 static void send_fdl1_ack(void)
@@ -21,6 +22,9 @@ static void send_fdl1_ack(void)
 
 void board_early_init(void)
 {
+    /* 0. Disarm PMIC hardware watchdog immediately to prevent reset during boot */
+    watchdog_disable();
+
     /* 1. Ungate UART1 APB clock (bits 13 & 14) */
     REG_APB_CLK_EN |= APB_CLK_UART1_EN;
 
@@ -36,4 +40,7 @@ void board_early_init(void)
 
     /* 5. Initialize SC2720 PMIC Torch subsystem */
     torch_init();
+
+    /* 6. Optical Sign of Life: 1 flash confirms payload loaded & C runtime alive */
+    torch_blink(1, 60, 60, 0x0F);
 }
