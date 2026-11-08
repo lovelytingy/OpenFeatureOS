@@ -3,21 +3,7 @@
  * Target: Unisoc T107 (UMS9117) / Nokia 2660 Flip (TA-1480)
  */
 
-#include <stdint.h>
-
-/* src: Nokia-2660-RE docs/uart-serial-interface.md */
-#define REG_APB_CLK_EN      (*(volatile uint32_t *)0x71300000U)
-#define UART1_TXD           (*(volatile uint32_t *)0x70100000U)
-#define UART1_STS1          (*(volatile uint32_t *)0x7010000CU)
-#define UART1_LCR           (*(volatile uint32_t *)0x70100018U)
-#define UART1_CLKD0         (*(volatile uint32_t *)0x70100024U)
-
-/* src: Nokia-2660-RE docs/flashlight.md */
-#define ADI_BASE            0x40600000U
-#define PMIC_TORCH_REG      0x40608DF4U
-
-/* DRAM Mailbox Status Scratchpad */
-#define MAILBOX_BASE        ((volatile uint32_t *)0x80700100U)
+#include "t107_regs.h"
 
 void early_uart_putc(char c)
 {
@@ -39,33 +25,33 @@ void early_uart_puts(const char *s)
 }
 
 /* SC2720 PMIC ADI bus access routines */
-static uint32_t pmic_adi_read(uint32_t addr)
+uint32_t pmic_adi_read(uint32_t addr)
 {
     int32_t val;
-    *(volatile uint32_t *)(ADI_BASE + 0x28) = addr;
-    while ((val = *(volatile int32_t *)(ADI_BASE + 0x2C)) < 0) {
-        /* Poll */
+    ADI_RD_CMD = addr;
+    while ((val = (int32_t)ADI_RD_DATA) < 0) {
+        /* Poll until bit 31 clears (data ready) */
     }
     return (uint16_t)val;
 }
 
-static void pmic_adi_write(uint32_t addr, uint32_t val)
+void pmic_adi_write(uint32_t addr, uint32_t val)
 {
-    while (*(volatile uint32_t *)(ADI_BASE + 0x30) & 0x800U) {
+    while (ADI_ARM_STS & 0x800U) {
         /* Wait if write FIFO is busy */
     }
-    *(volatile uint32_t *)addr = val;
+    REG32(addr) = val;
 }
 
 void pmic_torch_enable(int enable, uint32_t level)
 {
-    uint32_t cur = pmic_adi_read(PMIC_TORCH_REG);
+    uint32_t cur = pmic_adi_read(SC2720_PMIC_TORCH_REG);
     if (enable) {
-        level &= 0x0FU;
+        level &= SC2720_TORCH_LVL_MASK;
         /* Keep reserved bits, set bit 15 (enable), apply current level in [3:0] */
-        pmic_adi_write(PMIC_TORCH_REG, (cur & ~0x800FU) | 0x8000U | level);
+        pmic_adi_write(SC2720_PMIC_TORCH_REG, (cur & ~0x800FU) | SC2720_TORCH_EN | level);
     } else {
-        pmic_adi_write(PMIC_TORCH_REG, cur & ~0x8000U);
+        pmic_adi_write(SC2720_PMIC_TORCH_REG, cur & ~SC2720_TORCH_EN);
     }
 }
 
@@ -83,14 +69,14 @@ static void send_fdl1_ack(void)
 void board_early_init(void)
 {
     /* Ungate UART1 APB clock (bits 13 & 14) */
-    REG_APB_CLK_EN |= 0x6000U;
+    REG_APB_CLK_EN |= APB_CLK_UART1_EN;
 
     /* Configure 115200 8N1 at 26 MHz: divisor = 226 (0x00E2) */
-    UART1_CLKD0 = 0x00E2U;
-    UART1_LCR   = 0x001CU; /* 8 data bits, no parity, 1 stop bit */
+    UART1_CLKD0 = UART_BAUD_115200_DIV;
+    UART1_LCR   = UART_LCR_8N1;
 
     /* Update Mailbox Stage */
-    MAILBOX_BASE[2] = 0x00000003U; /* Stage: early_init completed */
+    REG32(T107_DRAM_MAILBOX + 0x08U) = 0x00000003U; /* Stage: early_init completed */
 
     early_uart_puts("\n[OpenFeatureOS] board_early_init: UART1 initialized (115200 8N1)\n");
 
