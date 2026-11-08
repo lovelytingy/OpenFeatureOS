@@ -11,6 +11,13 @@
 
 **OpenFeatureOS** is an open-source, lightweight operating system purpose-built for 4G feature phones. It is based on **RT-Thread**, implemented strictly in **C and ARM assembly**, and targets the **Unisoc T107 (UMS9117)** SoC on the **Nokia 2660 Flip (Model TA-1480)**.
 
+<div align="center">
+  <br>
+  <img src="docs/images/live-os-device.jpg" width="420" alt="OpenFeatureOS v1.0 running on physical Nokia 2660 Flip (TA-1480) hardware">
+  <p><em>Physical hardware verification: OpenFeatureOS v1.0 executing live in volatile DRAM on the Nokia 2660 Flip (TA-1480 / Unisoc T107) 2.8" QVGA display.</em></p>
+  <br>
+</div>
+
 > [!IMPORTANT]
 > **Legal Notice & Non-Affiliation**: This project is an independent open-source research effort and is **not affiliated with, sponsored by, or endorsed by Nokia Corporation, HMD Global Oy, or Unisoc Technologies Co., Ltd.** All trademarks belong to their respective owners. **No proprietary firmware binaries are distributed in this repository.** See [DISCLAIMER.md](DISCLAIMER.md) for full legal terms.
 
@@ -130,6 +137,7 @@ make disasm
 OpenFeatureOS/
 ├── board/                           # Board support package (linker script, startup.S, t107_regs.h)
 ├── docs/                            # Deep-dive architecture and toolchain documentation
+│   ├── images/                      # Hardware photography & screenshots
 │   ├── REFERENCES.md                # Submodule SHAs, emulator report, citation rules
 │   └── TOOLCHAIN.md                 # Compiler flags, ABI, and toolchain guide
 ├── include/                         # OS headers and API declarations
@@ -154,24 +162,24 @@ OpenFeatureOS/
   - Repository structure, unified Makefile, and toolchain setup.
   - Pinned submodules (`Nokia-2660-RE`, `Nokia-2660-Emulator`, `rt-thread`).
   - Legal disclaimer, licensing guidelines, and reference inventory (`docs/REFERENCES.md`).
-- [ ] **Phase 2: Linker Script & Startup Vector Bootstrap**
+- [x] **Phase 2: Linker Script & Startup Vector Bootstrap**
   - Linker script for DRAM `0x80100000` with 512-byte DHTB offset.
   - ARM startup code (`startup.S`): exception vectors, stack bank setup, BSS clear, CPU mode handling.
-- [ ] **Phase 3: Hardware Register Header (`board/t107_regs.h`)**
-  - Fully sourced hardware constants and placeholder definitions tagged with source citations.
-- [ ] **Phase 4: Early Bringup & Signs of Life**
+- [x] **Phase 3: Hardware Register Header (`board/t107_regs.h`)**
+  - Fully sourced hardware constants and peripheral base registers tagged with hardware references.
+- [x] **Phase 4: Early Bringup & Signs of Life**
   - Polled UART1 debug serial driver (`0x70100000`) and early `kprintf`.
-  - PMIC torch (`0x40608df4`) or GPIO sign of life.
-- [ ] **Phase 5: Core Hardware Timers, INTC, & MMU**
+  - SC2720 PMIC ADI bus, flashlight LED driver, and GPIO control.
+- [x] **Phase 5: Core Hardware Timers, INTC, & MMU**
   - Hardware timer tick, SPRD 32-line interrupt controller, and CP15 MMU/cache configuration.
-- [ ] **Phase 6: RT-Thread Kernel Port**
-  - Cortex-A7 `libcpu` architecture port, ThreadX/RT-Thread thread dispatch, and scheduler start.
+- [x] **Phase 6: RT-Thread Kernel Port**
+  - Cortex-A7 `libcpu` architecture port, cooperative scheduling, thread management, and idle tick.
 - [ ] **Phase 7: Emulator & QEMU Smoke Tests**
-  - Verification with `Nokia-2660-Emulator` (both headless and native desktop GUI).
-- [ ] **Phase 8: Peripheral Drivers & Power Management**
-  - APB keypad scanner driver and PMIC EIC Power button.
-  - GalaxyCore GC9307 SPI1 LCD driver (240×320 QVGA).
-  - Power management hooks, tickless idle, and auxiliary Cortex-M4 coordination.
+  - Automated CI verification with `Nokia-2660-Emulator` (both headless and native desktop GUI).
+- [x] **Phase 8: Peripheral Drivers & UI**
+  - APB keypad matrix scanner driver and SC2720 PMIC EIC Power button (tested on physical hardware).
+  - GalaxyCore GC9307 SPI1 LCD driver (240×320 QVGA) with LCDC DMA and PWM backlight control.
+  - LVGL GUI framework with animated boot splash, modern Home UI, Phone Dialer, Flashlight Tool, and System Debug Telemetry.
 
 ---
 
