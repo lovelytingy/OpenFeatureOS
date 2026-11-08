@@ -1,0 +1,9 @@
+[submodule "third_party/nokia-2660-re"]
+	path = third_party/nokia-2660-re
+	url = https://github.com/lovelytingy/Nokia-2660-RE
+[submodule "third_party/nokia-2660-emulator"]
+	path = third_party/nokia-2660-emulator
+	url = https://github.com/lovelytingy/Nokia-2660-Emulator
+[submodule "third_party/rt-thread"]
+	path = third_party/rt-thread
+	url = https://github.com/RT-Thread/rt-thread

@@ -1,0 +1,15 @@
+# Build output
+build/
+*.elf
+*.bin
+*.raw
+*.disasm
+*.o
+*.a
+
+# Editor / OS files
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
