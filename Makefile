@@ -25,7 +25,7 @@ CFLAGS         = $(ARCH_FLAGS) \
                  -fno-tree-loop-distribute-patterns \
                  -D__RT_KERNEL_SOURCE__ \
                  -DLV_CONF_INCLUDE_SIMPLE \
-                 -Iinclude -Iboard \
+                 -Iinclude -Iboard -Isrc \
                  -Ithird_party/rt-thread/include \
                  -Ithird_party/rt-thread/libcpu/arm/cortex-a \
                  -Ithird_party \
@@ -35,7 +35,7 @@ CFLAGS         = $(ARCH_FLAGS) \
 AFLAGS         = $(ARCH_FLAGS) \
                  -x assembler-with-cpp \
                  -g \
-                 -Iinclude -Iboard \
+                 -Iinclude -Iboard -Isrc \
                  -Ithird_party/rt-thread/include \
                  -Ithird_party/rt-thread/libcpu/arm/cortex-a \
                  -Ithird_party \

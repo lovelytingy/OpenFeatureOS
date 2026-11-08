@@ -38,9 +38,6 @@ void board_early_init(void)
     /* 4. Acknowledge USB FDL1 dispatcher so spd_dump confirms handoff */
     send_fdl1_ack();
 
-    /* 5. Initialize SC2720 PMIC Torch subsystem */
+    /* 5. Initialize SC2720 PMIC Torch subsystem (cleanly disabled at boot) */
     torch_init();
-
-    /* 6. Optical Sign of Life: 1 flash confirms payload loaded & C runtime alive */
-    torch_blink(1, 60, 60, 0x0F);
 }

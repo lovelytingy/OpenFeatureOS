@@ -14,6 +14,7 @@
 #include "pmic_adi.h"
 #include "timer.h"
 #include "printk.h"
+#include "ui_app.h"
 #include <rtthread.h>
 
 lv_group_t *g_lvgl_keypad_group = NULL;
@@ -66,10 +67,10 @@ static uint32_t map_matrix_coords_to_lv_key(uint32_t col, uint32_t row)
 void keypad_hw_init(void)
 {
     /* 1. Ungate APB Power Domain for Keypad Matrix Controller (Bit 8) */
-    REG32(0x402E1000U) |= 0x100U;
+    REG_AON_APB_PWR |= APB_PWR_KPD_ON;
 
     /* 2. Ungate Keypad Peripheral Clock (Bit 1) */
-    REG32(0x402E1010U) |= 0x002U;
+    REG_AON_CLK_EN |= CLK_KPD_EN;
 
     /* 3. Soft reset Keypad Controller */
     REG32(0x402E1008U) = 0x100U;
@@ -87,49 +88,71 @@ void keypad_hw_init(void)
     /* 5. Enable 5x5 Matrix Grid (Cols 0..4, Rows 0..4 enabled for TA-1480) */
     KPD_CTRL = (1U << 0) | (4U << 0) | (0x1FU << 16) | (0x1FU << 8);
 
-    /* 6. Configure SC2720 PMIC EIC for Power/End button (Pin 1) & Key 8 (Pin 9) */
+    /* 6. Configure SC2720 PMIC EIC for Power/End button (Pin 1) */
     pmic_adi_write(0x406080C8U, pmic_adi_read(0x406080C8U) | 0x10U);
     pmic_adi_write(0x40608298U, 0U);
     pmic_adi_write(0x40608C08U, pmic_adi_read(0x40608C08U) | 8U);
     pmic_adi_write(0x40608E40U, pmic_adi_read(0x40608E40U) | 1U);
     pmic_adi_write(0x40608C10U, pmic_adi_read(0x40608C10U) | 8U);
-    pmic_adi_write(0x40608284U, pmic_adi_read(0x40608284U) | (1U << 1) | (1U << 9));
+    pmic_adi_write(0x40608284U, pmic_adi_read(0x40608284U) | (1U << 1));
 
     kprintf("[KEYPAD] 5x5 APB Scanner & SC2720 PMIC EIC initialized (TA-1480 keymap)\n");
 }
+
+static uint32_t s_active_key = 0;
+static uint32_t s_active_down = 0;
+static uint32_t s_pwr_poll_div = 0;
 
 /*
  * Direct raw keypad polling helper for non-LVGL tasks or diagnostics.
  */
 uint32_t keypad_poll_raw(uint32_t *out_is_down)
 {
-    uint32_t key = 0;
-    int is_down = 0;
+    /* 1. Matrix scanning: high-speed APB register access */
+    uint32_t raw = KPD_INT_RAW & 0xFFU;
 
-    /* SC2720 PMIC Power Button (EIC Pin 1) */
-    uint32_t eic_data = pmic_adi_read(0x40608280U);
-    if (!((eic_data >> 1) & 1)) {
-        key = LV_KEY_ESC;
-        is_down = 1;
-    } else if ((eic_data >> 9) & 1) {
-        key = '8';
-        is_down = 1;
-    } else {
-        uint32_t raw = KPD_INT_RAW & 0xFFU;
-        if (raw & 0x0FU) {
-            uint32_t status = KPD_KEY_STATUS;
-            uint32_t col = status & 0x07U;
-            uint32_t row = (status >> 4) & 0x07U;
-            key = map_matrix_coords_to_lv_key(col, row);
-            is_down = 1;
+    if (raw & 0x0FU) {
+        /* KEY DOWN event */
+        uint32_t status = KPD_KEY_STATUS;
+        uint32_t col = status & 0x07U;
+        uint32_t row = (status >> 4) & 0x07U;
+        uint32_t mapped = map_matrix_coords_to_lv_key(col, row);
+        if (mapped != 0) {
+            s_active_key = mapped;
+            s_active_down = 1;
         }
-        if (raw) {
-            KPD_INT_CLR = 0x0FFFU;
+        /* Clear key down interrupt flag so subsequent events can register */
+        KPD_INT_CLR = (raw & 0x0FU);
+    } else if (raw & 0xF0U) {
+        /* KEY UP event */
+        s_active_down = 0;
+        KPD_INT_CLR = (raw & 0xF0U);
+    } else if (s_active_key == LV_KEY_ESC && s_active_down) {
+        /* 2a. Check if Power/End key has been released */
+        if (++s_pwr_poll_div >= 4) {
+            s_pwr_poll_div = 0;
+            uint32_t eic_data = pmic_adi_read(0x40608280U);
+            if ((eic_data >> 1) & 1) {
+                /* Power key released (active-low bit 1 is high) */
+                s_active_down = 0;
+            }
+        }
+    } else if (s_active_down == 0) {
+        /* 2b. Check PMIC EIC Power/End key when no matrix key is pressed.
+         * Rate-limit to every 4 polls (~40ms) to prevent ADI serial bus saturation. */
+        if (++s_pwr_poll_div >= 4) {
+            s_pwr_poll_div = 0;
+            uint32_t eic_data = pmic_adi_read(0x40608280U);
+            if (!((eic_data >> 1) & 1)) {
+                /* Active-low: Power / End key pressed */
+                s_active_key = LV_KEY_ESC;
+                s_active_down = 1;
+            }
         }
     }
 
-    if (out_is_down) *out_is_down = is_down;
-    return key;
+    if (out_is_down) *out_is_down = s_active_down;
+    return s_active_key;
 }
 
 /*
@@ -140,6 +163,7 @@ static void keypad_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
     (void)drv;
     static uint32_t s_last_key = 0;
+    static uint32_t s_prev_down = 0;
     uint32_t is_down = 0;
     uint32_t key = keypad_poll_raw(&is_down);
 
@@ -147,10 +171,18 @@ static void keypad_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
         s_last_key = key;
         data->state = LV_INDEV_STATE_PRESSED;
         data->key = key;
+
+        /* RISING EDGE: Invoke global UI handler immediately */
+        if (!s_prev_down) {
+            kprintf("[KEYPAD] Key pressed: 0x%02x ('%c')\n",
+                    key, (key >= 32 && key < 127) ? (char)key : '?');
+            ui_app_handle_key(key);
+        }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
         data->key = s_last_key;
     }
+    s_prev_down = is_down;
 }
 
 void lv_port_indev_init(void)

@@ -62,6 +62,7 @@ static lv_obj_t *s_lbl_debug_telemetry = NULL;
 /* Tab 4: Settings */
 static uint32_t s_bl_percent = 80;
 static lv_obj_t *s_lbl_bl_val = NULL;
+static lv_obj_t *s_btn_bl_presets[4] = {NULL};
 
 /* Bottom Softkey Bar */
 static lv_obj_t *s_softkey_bar = NULL;
@@ -220,8 +221,8 @@ static void switch_view(app_view_t view)
             lv_label_set_text(s_lbl_lsk, "LSK: Home");
             lv_label_set_text(s_lbl_ok,  "OK: Select");
             lv_label_set_text(s_lbl_rsk, "RSK: Back");
-            if (g_lvgl_keypad_group && s_cont_settings) {
-                lv_group_focus_obj(s_cont_settings);
+            if (g_lvgl_keypad_group && s_btn_bl_presets[0]) {
+                lv_group_focus_obj(s_btn_bl_presets[0]);
             }
             break;
     }
@@ -383,13 +384,13 @@ static void ui_timer_cb(lv_timer_t *timer)
 }
 
 /* ----------------------------------------------------------------------------
- * Global Keypad Handler
+ * Global Keypad Handler & Event Dispatcher
  * ----------------------------------------------------------------------------
  */
-static void screen_key_event_cb(lv_event_t *e)
+void ui_app_handle_key(uint32_t key)
 {
-    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-    uint32_t key = lv_event_get_key(e);
+    rt_kprintf("[UI] Key: 0x%02x ('%c') | View: %d\n",
+               key, (key >= 32 && key < 127) ? (char)key : '?', s_current_view);
 
     if (s_current_view == VIEW_HOME) {
         if (key == '1') {
@@ -400,33 +401,101 @@ static void screen_key_event_cb(lv_event_t *e)
             switch_view(VIEW_DEBUG);
         } else if (key == '4') {
             switch_view(VIEW_SETTINGS);
-        } else if (key == LV_KEY_PREV) {
-            /* LSK: Quick launch dialer */
+        } else if (key == LV_KEY_PREV || key == 'C') {
+            /* LSK or Green Call key: launch Dialer */
             switch_view(VIEW_DIALER);
         } else if (key == LV_KEY_NEXT) {
-            /* RSK: Quick flashlight toggle from Home */
+            /* RSK: Flashlight quick toggle */
             torch_toggle_action();
+        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT) {
+            if (g_lvgl_keypad_group) {
+                lv_group_focus_prev(g_lvgl_keypad_group);
+            }
+        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT) {
+            if (g_lvgl_keypad_group) {
+                lv_group_focus_next(g_lvgl_keypad_group);
+            }
+        } else if (key == LV_KEY_ENTER) {
+            /* Center OK key: activate focused button */
+            if (g_lvgl_keypad_group) {
+                lv_obj_t *focused = lv_group_get_focused(g_lvgl_keypad_group);
+                if (focused) {
+                    lv_event_send(focused, LV_EVENT_CLICKED, NULL);
+                }
+            }
         } else if ((key >= '0' && key <= '9') || key == '*' || key == '#') {
-            /* Direct typing from home immediately switches to dialer */
+            /* Typing digits from home opens dialer and appends digit */
             switch_view(VIEW_DIALER);
             dialer_append_char((char)key);
         }
     } else if (s_current_view == VIEW_DIALER) {
         if (key == LV_KEY_PREV || key == LV_KEY_ESC) {
-            /* LSK: Back to Home */
+            /* LSK or End/Power key: Return to Home */
             switch_view(VIEW_HOME);
         } else if (key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE) {
-            /* RSK: Delete */
+            /* RSK or Back key: Delete digit */
             dialer_delete_char();
+        } else if (key == 'C' || key == LV_KEY_ENTER) {
+            /* Call button or OK: Simulate call */
+            if (s_dial_len > 0) {
+                char msg[48];
+                rt_snprintf(msg, sizeof(msg), "Calling: %s...", s_dial_buf);
+                lv_label_set_text(s_dial_label, msg);
+                lv_obj_set_style_text_color(s_dial_label, lv_color_hex(0x00FF88), LV_PART_MAIN);
+            } else {
+                lv_label_set_text(s_dial_label, "Enter Number First!");
+                lv_obj_set_style_text_color(s_dial_label, lv_color_hex(0xFF5252), LV_PART_MAIN);
+            }
         } else if ((key >= '0' && key <= '9') || key == '*' || key == '#') {
             dialer_append_char((char)key);
         }
-    } else {
-        /* Other views: LSK, RSK, or Back key returns to Home */
+    } else if (s_current_view == VIEW_TORCH) {
+        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC) {
+            switch_view(VIEW_HOME);
+        } else if (key == '2' || key == LV_KEY_ENTER) {
+            if (g_lvgl_keypad_group) {
+                lv_obj_t *focused = lv_group_get_focused(g_lvgl_keypad_group);
+                if (focused) {
+                    lv_event_send(focused, LV_EVENT_CLICKED, NULL);
+                } else {
+                    torch_toggle_action();
+                }
+            } else {
+                torch_toggle_action();
+            }
+        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT) {
+            if (g_lvgl_keypad_group) lv_group_focus_prev(g_lvgl_keypad_group);
+        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT) {
+            if (g_lvgl_keypad_group) lv_group_focus_next(g_lvgl_keypad_group);
+        }
+    } else if (s_current_view == VIEW_DEBUG) {
         if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC) {
             switch_view(VIEW_HOME);
         }
+    } else if (s_current_view == VIEW_SETTINGS) {
+        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC) {
+            switch_view(VIEW_HOME);
+        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT) {
+            if (g_lvgl_keypad_group) lv_group_focus_prev(g_lvgl_keypad_group);
+        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT) {
+            if (g_lvgl_keypad_group) lv_group_focus_next(g_lvgl_keypad_group);
+        } else if (key == LV_KEY_ENTER) {
+            if (g_lvgl_keypad_group) {
+                lv_obj_t *focused = lv_group_get_focused(g_lvgl_keypad_group);
+                if (focused) lv_event_send(focused, LV_EVENT_CLICKED, NULL);
+            }
+        }
     }
+
+    /* Immediately redraw display with latest state */
+    lv_refr_now(NULL);
+}
+
+static void screen_key_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
+    ui_app_handle_key(key);
 }
 
 /* ----------------------------------------------------------------------------
@@ -872,6 +941,8 @@ static void create_settings_view(lv_obj_t *parent)
         lv_label_set_text(lbl, preset_labels[i]);
         lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+
+        s_btn_bl_presets[i] = btn;
 
         if (g_lvgl_keypad_group) {
             lv_group_add_obj(g_lvgl_keypad_group, btn);

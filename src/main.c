@@ -26,7 +26,7 @@ extern uint32_t __mmu_table_start;
  * Thread 1: Hardware Watchdog Sentinel Task
  * Runs as an independent RTOS thread with priority 15.
  */
-static void torch_beacon_entry(void *parameter)
+static void sentinel_task_entry(void *parameter)
 {
     (void)parameter;
     uint32_t beat_count = 0;
@@ -96,25 +96,22 @@ int main(void)
     rt_kprintf(" Console Port    : UART1 (1.8V TTL @ 115200 8N1)\n");
     rt_kprintf("==============================================================\n");
 
-    /* Physical sign-of-life on hardware: two quick flashlight pulses */
-    torch_blink(2, 60, 60, 0x0F);
-
     /* Mark successful RTOS boot stage in DRAM mailbox */
     REG32(T107_DRAM_MAILBOX + 0x0CU) = 0x52545430U; /* 'RTT0' */
     REG32(T107_DRAM_MAILBOX + 0x10U) = 0x00000001U; /* Status: Success */
 
-    /* Spawn Thread 1: Optical Heartbeat & Watchdog Sentinel */
-    rt_thread_t torch_thread = rt_thread_create("torch",
-                                               torch_beacon_entry,
-                                               RT_NULL,
-                                               2048,
-                                               15,
-                                               10);
-    if (torch_thread != RT_NULL) {
-        rt_thread_startup(torch_thread);
-        rt_kprintf("[MAIN] Created and started thread: torch\n");
+    /* Spawn Thread 1: Hardware Watchdog Sentinel */
+    rt_thread_t sentinel_thread = rt_thread_create("sentinel",
+                                                  sentinel_task_entry,
+                                                  RT_NULL,
+                                                  2048,
+                                                  15,
+                                                  10);
+    if (sentinel_thread != RT_NULL) {
+        rt_thread_startup(sentinel_thread);
+        rt_kprintf("[MAIN] Created and started thread: sentinel\n");
     } else {
-        rt_kprintf("[MAIN] ERROR: Failed to create thread: torch\n");
+        rt_kprintf("[MAIN] ERROR: Failed to create thread: sentinel\n");
     }
 
     /* Spawn Thread 2: Periodic Telemetry Reporter */

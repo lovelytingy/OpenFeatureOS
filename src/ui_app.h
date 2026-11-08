@@ -6,7 +6,10 @@
 #ifndef UI_APP_H_
 #define UI_APP_H_
 
+#include <stdint.h>
+
 void ui_app_init(void);
 void ui_app_run(void);
+void ui_app_handle_key(uint32_t key);
 
 #endif /* UI_APP_H_ */
