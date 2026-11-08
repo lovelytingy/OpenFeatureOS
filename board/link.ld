@@ -83,6 +83,14 @@ SECTIONS
         __stack_top = .;
     } > DRAM
 
+    /* ARMv7-A 16 KB First-Level Translation Table (L1 Page Table) */
+    .mmu_table (NOLOAD) : {
+        . = ALIGN(16384);
+        __mmu_table_start = .;
+        . += 0x4000; /* 16 KB = 4096 entries * 4 bytes */
+        __mmu_table_end = .;
+    } > DRAM
+
     /* Dynamic memory / kernel heap boundary definitions */
     . = ALIGN(8);
     __heap_start = .;

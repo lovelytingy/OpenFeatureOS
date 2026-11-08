@@ -209,8 +209,22 @@ hyp_handler:
     .global irq_handler
     .type irq_handler, %function
 irq_handler:
-    /* Stub IRQ handler - will be hooked to INTC in Deliverable 5 */
-    subs    pc, lr, #4
+    /* Adjust return address: in IRQ mode, LR points to (next PC + 4) */
+    sub     lr, lr, #4
+    /* Save LR_irq and SPSR_irq onto the SVC mode stack */
+    srsdb   sp!, #MODE_SVC
+    /* Switch CPU to Supervisor (SVC) mode */
+    cps     #MODE_SVC
+    /* Save AAPCS caller-saved registers */
+    push    {r0-r3, r12, lr}
+
+    /* Call C interrupt dispatcher */
+    bl      irq_dispatch
+
+    /* Restore caller-saved registers */
+    pop     {r0-r3, r12, lr}
+    /* Return from exception: atomically restores PC and CPSR from SVC stack */
+    rfeia   sp!
 
     .global fiq_handler
     .type fiq_handler, %function

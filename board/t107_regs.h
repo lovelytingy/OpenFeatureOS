@@ -166,32 +166,79 @@
 #define CM4_SHARED_DDR_BASE         0x80700000U /* Inter-Core IPC Ringbuffer Window */
 
 /* ============================================================================
- * 7. Undocumented Hardware Registers & TODO Placeholders
+ * 7. System Timers & Watchdog Subsystems
  * ============================================================================
- * The following constants are placeholders for hardware blocks not yet fully
- * documented in Nokia-2660-RE docs. Verified values must be confirmed.
  */
 
-/* TODO: Look up verified hardware base address for the ARM Interrupt Controller.
- * Note: The emulator models GIC at 0x12000000 and SPRD INTC at 0x50050000.
- * Physical UMS9117 kernel.bin uses Cortex-A7 MPCore GIC or SPRD INTC. */
-#define T107_GIC_DIST_BASE_PLACEHOLDER  0x12001000U /* TODO: Verify GIC Distributor Base */
-#define T107_GIC_CPU_BASE_PLACEHOLDER   0x12002000U /* TODO: Verify GIC CPU Interface Base */
-#define T107_SPRD_INTC_BASE_PLACEHOLDER 0x50050000U /* TODO: Verify SPRD INTC Base if non-GIC */
+/* src: Nokia-2660-RE tools/ram_payload/src/baremetal_lcd/payload.c:24 */
+/* src: Nokia-2660-RE tools/ram_payload/vendor/fpdoom/ums9117/syscomm.c:138 */
+/* src: Nokia-2660-RE tools/emulator/ums9117_emu.py:294 */
+#define TIMER_1MS_BASE              0x40230000U /* 1 ms Free-Running System Timer Base */
+#define TIMER_1MS_COUNT             REG32(TIMER_1MS_BASE + 0x0CU) /* 1 ms Free-Running Counter (RO) */
 
-/* TODO: Look up verified IRQ numbers for UMS9117 hardware lines */
-#define T107_IRQ_KEYPAD_PLACEHOLDER     5U          /* TODO: Verify Keypad IRQ Number */
-#define T107_IRQ_TIMER_PLACEHOLDER      4U          /* TODO: Verify System Timer IRQ */
-#define T107_IRQ_UART1_PLACEHOLDER      0U          /* TODO: Verify UART1 IRQ */
+/* src: Nokia-2660-RE tools/ram_payload/vendor/fpdoom/ums9117/syscode.c:781-796 */
+#define SC2720_PMIC_WDG_BASE        0x40608040U /* SC2720 Watchdog Base via ADI Bus */
+#define SC2720_WDG_LOAD_LOW         (SC2720_PMIC_WDG_BASE + 0x00U) /* Counter Reload Low Word */
+#define SC2720_WDG_LOAD_HIGH        (SC2720_PMIC_WDG_BASE + 0x04U) /* Counter Reload High Word */
+#define SC2720_WDG_CTRL             (SC2720_PMIC_WDG_BASE + 0x08U) /* Watchdog Control Register */
+#define SC2720_WDG_LOCK             (SC2720_PMIC_WDG_BASE + 0x20U) /* Lock Register (Key: 0xE551) */
+#define SC2720_WDG_UNLOCK_KEY       0xE551U                        /* Unlock magic sequence */
+#define SC2720_WDG_CTRL_EN          (1U << 0)                      /* Bit 0: Watchdog Timer Enable */
+#define SC2720_WDG_CTRL_RST         (1U << 1)                      /* Bit 1: Reload / Pet Counter */
 
-/* TODO: Look up verified hardware System Timer peripheral base address.
- * Note: Reference emulator hooks 0x40230000 (SPL) and 0x40040000 (Kernel AON).
- * ARM Cortex-A7 also integrates CP15 Generic Timers (CNTP / CNTFRQ). */
-#define T107_AON_SYSTIMER_PLACEHOLDER   0x40040000U /* TODO: Verify AON System Timer Base */
+/* TODO: Look up hardware Watchdog registers on the Cortex-A7 APB bus if independent of PMIC */
+#define T107_APB_WDG_BASE_PLACEHOLDER 0x40220000U /* TODO: Verify APB SoC Watchdog Base */
 
-/* TODO: Look up hardware Watchdog registers on the Cortex-A7 APB bus.
- * Note: PMIC SC2720 watchdog via ADI is at 0x40608040 (verified in syscode.c). */
-#define SC2720_PMIC_WDG_BASE            0x40608040U /* PMIC Watchdog via ADI (verified) */
-#define T107_APB_WDG_BASE_PLACEHOLDER   0x40220000U /* TODO: Verify APB SoC Watchdog Base */
+/* ============================================================================
+ * 8. Interrupt Controller (SPRD INTC & ARM GIC-400)
+ * ============================================================================
+ */
+
+/* src: Nokia-2660-Emulator crates/n2660-core/src/types.rs:112 */
+/* src: Nokia-2660-Emulator crates/n2660-core/src/peripherals/intc.rs */
+#define SPRD_INTC_BASE              0x50050000U /* Unisoc 32-Line Interrupt Controller Base */
+#define SPRD_INTC_IRQ_RAW_STS       REG32(SPRD_INTC_BASE + 0x00U) /* IRQ Raw Status (RO) */
+#define SPRD_INTC_IRQ_MASK_STS      REG32(SPRD_INTC_BASE + 0x04U) /* IRQ Masked Status (RO) */
+#define SPRD_INTC_IRQ_EN            REG32(SPRD_INTC_BASE + 0x08U) /* IRQ Enable Set (WO: write 1 to enable) */
+#define SPRD_INTC_IRQ_DIS           REG32(SPRD_INTC_BASE + 0x0CU) /* IRQ Enable Clear (WO: write 1 to disable) */
+#define SPRD_INTC_IRQ_SOFT          REG32(SPRD_INTC_BASE + 0x10U) /* Software IRQ Set */
+#define SPRD_INTC_IRQ_SOFT_CLR      REG32(SPRD_INTC_BASE + 0x14U) /* Software IRQ Clear */
+#define SPRD_INTC_IRQ_RAW_CLR       REG32(SPRD_INTC_BASE + 0x18U) /* Raw IRQ Clear */
+#define SPRD_INTC_FIQ_RAW_STS       REG32(SPRD_INTC_BASE + 0x1CU) /* FIQ Raw Status (RO) */
+#define SPRD_INTC_FIQ_MASK_STS      REG32(SPRD_INTC_BASE + 0x20U) /* FIQ Masked Status (RO) */
+#define SPRD_INTC_FIQ_EN            REG32(SPRD_INTC_BASE + 0x24U) /* FIQ Enable Set */
+#define SPRD_INTC_FIQ_DIS           REG32(SPRD_INTC_BASE + 0x28U) /* FIQ Enable Clear */
+#define SPRD_INTC_FIQ_SOFT          REG32(SPRD_INTC_BASE + 0x2CU) /* Software FIQ Set */
+#define SPRD_INTC_FIQ_SOFT_CLR      REG32(SPRD_INTC_BASE + 0x30U) /* Software FIQ Clear */
+#define SPRD_INTC_TYPE              REG32(SPRD_INTC_BASE + 0x34U) /* 0 = IRQ route, 1 = FIQ route */
+
+/* src: Nokia-2660-Emulator crates/n2660-core/src/types.rs:131-136 */
+#define SPRD_IRQ_UART0              0U  /* Hardware UART0 Interrupt */
+#define SPRD_IRQ_TIMER              4U  /* System Timer Periodic Interrupt */
+#define SPRD_IRQ_KEYPAD             5U  /* APB Keypad Matrix Scanner Interrupt */
+#define SPRD_IRQ_GPIO               6U  /* GPIO Pin Change Interrupt */
+#define SPRD_IRQ_SPI0               8U  /* SPI0 Controller Interrupt */
+#define SPRD_IRQ_SPI1               9U  /* SPI1 Controller Interrupt (Main LCD) */
+
+/* src: Nokia-2660-Emulator crates/n2660-core/src/types.rs:31 */
+#define SPRD_GIC_BASE               0x12000000U /* ARM Cortex-A7 MPCore GIC Base */
+#define GICD_BASE                   (SPRD_GIC_BASE + 0x1000U) /* GIC Distributor Base */
+#define GICC_BASE                   (SPRD_GIC_BASE + 0x2000U) /* GIC CPU Interface Base */
+
+#define GICD_CTLR                   REG32(GICD_BASE + 0x000U)
+#define GICD_TYPER                  REG32(GICD_BASE + 0x004U)
+#define GICC_CTLR                   REG32(GICC_BASE + 0x000U)
+#define GICC_PMR                    REG32(GICC_BASE + 0x004U)
+#define GICC_IAR                    REG32(GICC_BASE + 0x00CU)
+#define GICC_EOIR                   REG32(GICC_BASE + 0x010U)
+
+/* ============================================================================
+ * 9. Undocumented Hardware Registers & TODO Placeholders
+ * ============================================================================
+ */
+
+/* TODO: Look up verified hardware base address for AON timer if distinct from 0x40230000 */
+#define T107_AON_SYSTIMER_PLACEHOLDER 0x40040000U /* TODO: Verify AON System Timer Base */
+#define T107_IRQ_UART1_PLACEHOLDER  1U          /* TODO: Verify UART1 IRQ Line */
 
 #endif /* T107_REGS_H_ */

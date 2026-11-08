@@ -10,6 +10,7 @@
 #include "torch.h"
 #include "t107_regs.h"
 #include "printk.h"
+#include "pmic_adi.h"
 
 void delay_cycles(uint32_t cycles)
 {
@@ -35,25 +36,6 @@ void delay_ms(uint32_t ms)
     }
 }
 
-/* src: Nokia-2660-RE docs/hardware.md */
-static uint32_t adi_read(uint32_t addr)
-{
-    int32_t val;
-    ADI_RD_CMD = addr;
-    while ((val = (int32_t)ADI_RD_DATA) < 0) {
-        /* Poll until bit 31 clears (data ready) */
-    }
-    return (uint16_t)val;
-}
-
-static void adi_write(uint32_t addr, uint32_t val)
-{
-    while (ADI_ARM_STS & 0x800U) {
-        /* Wait if write FIFO is busy */
-    }
-    REG32(addr) = val;
-}
-
 void torch_init(void)
 {
     kprintf("[PMIC] Initializing SC2720 White LED Torch Driver at 0x%08x\n", SC2720_PMIC_TORCH_REG);
@@ -63,14 +45,14 @@ void torch_init(void)
 
 void torch_set(int on, uint8_t level)
 {
-    uint32_t cur = adi_read(SC2720_PMIC_TORCH_REG);
+    uint32_t cur = pmic_adi_read(SC2720_PMIC_TORCH_REG);
     if (on) {
         level &= SC2720_TORCH_LVL_MASK;
         /* Keep reserved bits, set bit 15 (TORCH_EN), apply intensity level */
-        adi_write(SC2720_PMIC_TORCH_REG, (cur & ~0x800FU) | SC2720_TORCH_EN | level);
+        pmic_adi_write(SC2720_PMIC_TORCH_REG, (cur & ~0x800FU) | SC2720_TORCH_EN | level);
     } else {
         /* Clear bit 15 to disable current sink */
-        adi_write(SC2720_PMIC_TORCH_REG, cur & ~SC2720_TORCH_EN);
+        pmic_adi_write(SC2720_PMIC_TORCH_REG, cur & ~SC2720_TORCH_EN);
     }
 }
 
