@@ -32,7 +32,7 @@ AFLAGS         = $(ARCH_FLAGS) \
 
 # Linker script and flags
 LDSCRIPT       = board/link.ld
-LDFLAGS        = -T $(LDSCRIPT) -nostdlib -gc-sections
+LDFLAGS        = -T $(LDSCRIPT) -nostdlib -Wl,--gc-sections
 
 # Output build directory
 BUILD_DIR      = build
@@ -50,7 +50,7 @@ OBJS          := $(patsubst %.c, $(BUILD_DIR)/%.o, $(C_SRCS)) \
 # Emulator launcher
 EMU_LAUNCHER   = third_party/nokia-2660-emulator/bin/n2660emu
 
-.PHONY: all clean emu disasm help info
+.PHONY: all clean emu disasm help info run
 
 all: $(TARGET_BIN)
 
@@ -89,11 +89,14 @@ disasm: $(TARGET_ELF)
 emu: $(TARGET_BIN)
 	@if [ -x "$(EMU_LAUNCHER)" ]; then \
 		echo "[*] Launching in Nokia 2660 Flip Emulator (n2660emu)..."; \
-		./$(EMU_LAUNCHER) $(TARGET_BIN) --prefer-pac --entry 0x80100200; \
+		./$(EMU_LAUNCHER) $(TARGET_BIN) --prefer-pac --entry 0x80100200 --timeout 2; \
 	else \
 		echo "[-] Emulator launcher not found at $(EMU_LAUNCHER)"; \
 		exit 1; \
 	fi
+
+run: $(TARGET_BIN)
+	@./scripts/run_device.sh
 
 clean:
 	@rm -rf $(BUILD_DIR)
