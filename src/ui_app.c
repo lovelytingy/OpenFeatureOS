@@ -493,9 +493,8 @@ void ui_app_handle_key(uint32_t key)
 
 static void screen_key_event_cb(lv_event_t *e)
 {
-    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
-    uint32_t key = lv_event_get_key(e);
-    ui_app_handle_key(key);
+    (void)e;
+    /* Handled directly in ui_app_run main loop for zero-latency deterministic dispatch */
 }
 
 /* ----------------------------------------------------------------------------
@@ -1051,8 +1050,20 @@ void ui_app_run(void)
     kprintf("[LVGL] First frame rendered to display panel. Entering GUI event loop.\n");
 
     while (1) {
+        uint32_t is_down = 0;
+        static uint32_t s_loop_prev_down = 0;
+        uint32_t key = keypad_poll_raw(&is_down);
+
+        if (is_down && !s_loop_prev_down && key != 0) {
+            kprintf("[KEYPAD:DIRECT] Pressed: 0x%02x ('%c')\n",
+                    key, (key >= 32 && key < 127) ? (char)key : '?');
+            ui_app_handle_key(key);
+        }
+        s_loop_prev_down = is_down;
+
         lv_timer_handler();
-        rt_thread_mdelay(10);
+        timer_delay_ms(10);
+        rt_thread_yield();
     }
 }
 

@@ -18,6 +18,7 @@
 #include "mmu.h"
 #include "timer.h"
 #include "watchdog.h"
+#include "backlight.h"
 
 extern uint8_t __framebuffer_start[];
 extern uint8_t __framebuffer_end[];
@@ -634,14 +635,17 @@ void lcdc_draw_boot_splash(void)
 
 void lcdc_run_boot_splash(uint32_t duration_ms)
 {
-    if (duration_ms == 0) duration_ms = 5000;
-    uint32_t total_steps = 50; /* 50 steps of 100 ms = 5000 ms */
+    if (duration_ms == 0) duration_ms = 3000;
+    uint32_t total_steps = 50; /* 50 steps of 60 ms = 3000 ms */
     uint32_t step_delay = duration_ms / total_steps;
 
     kprintf("[SPLASH] Launching OpenFeatureOS v1.0 animated boot splash (%u ms)...\n", duration_ms);
 
-    /* Render static splash elements once */
+    /* Render static splash elements once and flush to GC9307 GRAM */
     lcdc_draw_boot_splash_static();
+
+    /* Panel GRAM now holds valid dark splash frame: turn on backlight with NO white screen flash */
+    backlight_set_brightness(80);
 
     for (uint32_t step = 0; step <= total_steps; step++) {
         int pct = (step * 100) / total_steps;
@@ -656,6 +660,7 @@ void lcdc_run_boot_splash(uint32_t duration_ms)
 
     /* Seamless, instant transition to Feature Phone Home UI right after 100% splash */
     lcdc_draw_home_screen();
+    backlight_set_brightness(80);
 }
 
 void lcdc_draw_home_screen(void)

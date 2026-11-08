@@ -74,9 +74,11 @@ static void idle_hook(void)
         uint32_t ticks_to_add = delta_ms / ms_per_tick;
         last_tick_ms += ticks_to_add * ms_per_tick;
 
-        /* Trigger software interrupt on timer line to advance RT-Thread ticks in ISR context */
+        /* Advance RT-Thread ticks in simulated ISR context */
         for (uint32_t i = 0; i < ticks_to_add; i++) {
-            intc_trigger_soft_irq(SPRD_IRQ_TIMER);
+            rt_interrupt_enter();
+            rt_tick_increase();
+            rt_interrupt_leave();
         }
     }
 }
@@ -118,9 +120,9 @@ void rt_hw_board_init(void)
     /* 8. Initialize GPIOs and select Main (Inner 2.8" QVGA) Screen */
     gpio_init();
 
-    /* 9. Power up SC2720 PMIC Backlight Controller and set brightness to 80% */
+    /* 9. Power up SC2720 PMIC Backlight Controller (keep LEDs OFF to avoid white screen flash) */
     backlight_init();
-    backlight_set_brightness(80);
+    backlight_set_brightness(0);
 
     /* 10. Initialize Display Pipeline (SPI1, GC9307 Panel, LCDC DMA Controller) */
     lcdc_init();
