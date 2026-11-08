@@ -25,6 +25,12 @@ SECTIONS
         __text_start = .;
         KEEP(*(.vectors))
         KEEP(*(.text.entry))
+        /*
+         * Align general C code to next 8 KB boundary (0x80102000) to avoid collisions
+         * with fixed vendor boot1 hook addresses (0x8010065C, 0x80100C24, 0x80101C82)
+         * in the emulator.
+         */
+        . = ALIGN(0x2000);
         *(.text .text.*)
         *(.rodata .rodata.* .gnu.linkonce.r.*)
         . = ALIGN(4);
