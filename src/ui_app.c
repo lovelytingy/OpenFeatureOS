@@ -1,7 +1,7 @@
 /*
- * OpenFeatureOS - LVGL UI Application & Feature Phone Launcher
+ * OpenFeatureOS - Modern Feature Phone UI & Launcher
  * Target: Unisoc T107 (UMS9117) / Nokia 2660 Flip (TA-1480 / HW3.0)
- * 240x320 QVGA Portrait Display
+ * 240x320 QVGA Portrait Display (LVGL v8.3.11)
  */
 
 #include "ui_app.h"
@@ -15,37 +15,53 @@
 #include <rtthread.h>
 #include <string.h>
 
+/* Active View State */
+typedef enum {
+    VIEW_HOME = 0,
+    VIEW_DIALER,
+    VIEW_TORCH,
+    VIEW_DEBUG,
+    VIEW_SETTINGS
+} app_view_t;
+
+static app_view_t s_current_view = VIEW_HOME;
+
+/* View Containers */
+static lv_obj_t *s_cont_home = NULL;
+static lv_obj_t *s_cont_dialer = NULL;
+static lv_obj_t *s_cont_torch = NULL;
+static lv_obj_t *s_cont_debug = NULL;
+static lv_obj_t *s_cont_settings = NULL;
+
 /* Top Status Bar */
 static lv_obj_t *s_status_bar = NULL;
 static lv_obj_t *s_lbl_clock = NULL;
-static lv_obj_t *s_lbl_signal = NULL;
-static lv_obj_t *s_lbl_battery = NULL;
 
-/* Main Tabview */
-static lv_obj_t *s_tv = NULL;
+/* Home Screen Widgets */
+static lv_obj_t *s_lbl_home_time = NULL;
+static lv_obj_t *s_lbl_home_date = NULL;
+static lv_obj_t *s_btn_home_apps[4] = {NULL};
+static lv_obj_t *s_lbl_home_torch_status = NULL;
 
-/* Tab 1: Phone Dialer */
+/* Tab 1: Dialer */
 static lv_obj_t *s_dial_label = NULL;
 static char s_dial_buf[32] = {0};
 static int s_dial_len = 0;
 static lv_obj_t *s_btnm_dial = NULL;
-static lv_obj_t *s_btn_call = NULL;
-static lv_obj_t *s_btn_del = NULL;
 
-/* Tab 2: Quick Tools */
+/* Tab 2: Torch */
 static int s_torch_state = 0;
 static uint8_t s_torch_level = 0x0F;
-static lv_obj_t *s_torch_label = NULL;
-static lv_obj_t *s_torch_btn = NULL;
+static lv_obj_t *s_torch_badge = NULL;
+static lv_obj_t *s_torch_toggle_btn = NULL;
 static lv_obj_t *s_torch_lvl_btn = NULL;
-static lv_obj_t *s_bl_label = NULL;
+
+/* Tab 3: System Debug */
+static lv_obj_t *s_lbl_debug_telemetry = NULL;
+
+/* Tab 4: Settings */
 static uint32_t s_bl_percent = 80;
-
-/* Tab 3: System Telemetry */
-static lv_obj_t *s_sys_live_label = NULL;
-
-/* Tab 4: Display Calibration */
-static lv_obj_t *s_disp_info_label = NULL;
+static lv_obj_t *s_lbl_bl_val = NULL;
 
 /* Bottom Softkey Bar */
 static lv_obj_t *s_softkey_bar = NULL;
@@ -53,12 +69,18 @@ static lv_obj_t *s_lbl_lsk = NULL;
 static lv_obj_t *s_lbl_ok = NULL;
 static lv_obj_t *s_lbl_rsk = NULL;
 
+/* Forward Declarations */
+static void switch_view(app_view_t view);
+static void screen_key_event_cb(lv_event_t *e);
+
 /* ----------------------------------------------------------------------------
  * Helper: Append / Delete Dialed Digits
  * ----------------------------------------------------------------------------
  */
 static void dialer_update_display(void)
 {
+    if (!s_dial_label) return;
+
     if (s_dial_len == 0) {
         lv_label_set_text(s_dial_label, "Enter Number...");
         lv_obj_set_style_text_color(s_dial_label, lv_color_hex(0x607D8B), LV_PART_MAIN);
@@ -103,15 +125,130 @@ static void dialer_clear(void)
 }
 
 /* ----------------------------------------------------------------------------
- * Tab 1: Dialer Event Handlers
+ * Torch Toggle Helper
  * ----------------------------------------------------------------------------
  */
+static void torch_toggle_action(void)
+{
+    s_torch_state = !s_torch_state;
+    torch_set(s_torch_state, s_torch_level);
+
+    /* Update Torch View UI if loaded */
+    if (s_torch_badge) {
+        if (s_torch_state) {
+            lv_label_set_text(s_torch_badge, "TORCH: [ ACTIVE - ON ]");
+            lv_obj_set_style_bg_color(s_torch_badge, lv_color_hex(0x00E676), LV_PART_MAIN);
+            lv_obj_set_style_text_color(s_torch_badge, lv_color_hex(0x000000), LV_PART_MAIN);
+        } else {
+            lv_label_set_text(s_torch_badge, "TORCH: [ IDLE - OFF ]");
+            lv_obj_set_style_bg_color(s_torch_badge, lv_color_hex(0x37474F), LV_PART_MAIN);
+            lv_obj_set_style_text_color(s_torch_badge, lv_color_hex(0xB0BEC5), LV_PART_MAIN);
+        }
+    }
+
+    /* Update Home Screen Quick Torch Status */
+    if (s_lbl_home_torch_status) {
+        if (s_torch_state) {
+            lv_label_set_text(s_lbl_home_torch_status, "[2] Flashlight: [ ON ]");
+            lv_obj_set_style_text_color(s_lbl_home_torch_status, lv_color_hex(0x00FF88), LV_PART_MAIN);
+        } else {
+            lv_label_set_text(s_lbl_home_torch_status, "[2] Flashlight: [ OFF ]");
+            lv_obj_set_style_text_color(s_lbl_home_torch_status, lv_color_hex(0x90A4AE), LV_PART_MAIN);
+        }
+    }
+}
+
+/* ----------------------------------------------------------------------------
+ * View Switching Logic
+ * ----------------------------------------------------------------------------
+ */
+static void switch_view(app_view_t view)
+{
+    s_current_view = view;
+
+    /* Hide all view containers */
+    if (s_cont_home)     lv_obj_add_flag(s_cont_home, LV_OBJ_FLAG_HIDDEN);
+    if (s_cont_dialer)   lv_obj_add_flag(s_cont_dialer, LV_OBJ_FLAG_HIDDEN);
+    if (s_cont_torch)    lv_obj_add_flag(s_cont_torch, LV_OBJ_FLAG_HIDDEN);
+    if (s_cont_debug)    lv_obj_add_flag(s_cont_debug, LV_OBJ_FLAG_HIDDEN);
+    if (s_cont_settings) lv_obj_add_flag(s_cont_settings, LV_OBJ_FLAG_HIDDEN);
+
+    /* Show target container & set softkey hints */
+    switch (view) {
+        case VIEW_HOME:
+            if (s_cont_home) lv_obj_clear_flag(s_cont_home, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(s_lbl_lsk, "LSK: Dialer");
+            lv_label_set_text(s_lbl_ok,  "OK: Open");
+            lv_label_set_text(s_lbl_rsk, "RSK: Torch");
+            if (g_lvgl_keypad_group && s_btn_home_apps[0]) {
+                lv_group_focus_obj(s_btn_home_apps[0]);
+            }
+            break;
+
+        case VIEW_DIALER:
+            if (s_cont_dialer) lv_obj_clear_flag(s_cont_dialer, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(s_lbl_lsk, "LSK: Home");
+            lv_label_set_text(s_lbl_ok,  "OK: Dial");
+            lv_label_set_text(s_lbl_rsk, "RSK: Del");
+            if (g_lvgl_keypad_group && s_btnm_dial) {
+                lv_group_focus_obj(s_btnm_dial);
+            }
+            break;
+
+        case VIEW_TORCH:
+            if (s_cont_torch) lv_obj_clear_flag(s_cont_torch, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(s_lbl_lsk, "LSK: Home");
+            lv_label_set_text(s_lbl_ok,  "OK: Toggle");
+            lv_label_set_text(s_lbl_rsk, "RSK: Back");
+            if (g_lvgl_keypad_group && s_torch_toggle_btn) {
+                lv_group_focus_obj(s_torch_toggle_btn);
+            }
+            break;
+
+        case VIEW_DEBUG:
+            if (s_cont_debug) lv_obj_clear_flag(s_cont_debug, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(s_lbl_lsk, "LSK: Home");
+            lv_label_set_text(s_lbl_ok,  "OK: Top");
+            lv_label_set_text(s_lbl_rsk, "RSK: Back");
+            if (g_lvgl_keypad_group && s_cont_debug) {
+                lv_group_focus_obj(s_cont_debug);
+            }
+            break;
+
+        case VIEW_SETTINGS:
+            if (s_cont_settings) lv_obj_clear_flag(s_cont_settings, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(s_lbl_lsk, "LSK: Home");
+            lv_label_set_text(s_lbl_ok,  "OK: Select");
+            lv_label_set_text(s_lbl_rsk, "RSK: Back");
+            if (g_lvgl_keypad_group && s_cont_settings) {
+                lv_group_focus_obj(s_cont_settings);
+            }
+            break;
+    }
+}
+
+/* ----------------------------------------------------------------------------
+ * Button Event Handlers
+ * ----------------------------------------------------------------------------
+ */
+static void home_app_click_cb(lv_event_t *e)
+{
+    lv_obj_t *target = lv_event_get_target(e);
+    if (target == s_btn_home_apps[0]) {
+        switch_view(VIEW_DIALER);
+    } else if (target == s_btn_home_apps[1]) {
+        torch_toggle_action();
+    } else if (target == s_btn_home_apps[2]) {
+        switch_view(VIEW_DEBUG);
+    } else if (target == s_btn_home_apps[3]) {
+        switch_view(VIEW_SETTINGS);
+    }
+}
+
 static void dial_btnm_event_cb(lv_event_t *e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t *obj = lv_event_get_target(e);
-
-    if (code == LV_EVENT_VALUE_CHANGED) {
+    if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t *obj = lv_event_get_target(e);
         uint32_t id = lv_btnmatrix_get_selected_btn(obj);
         const char *txt = lv_btnmatrix_get_btn_text(obj, id);
         if (txt && txt[0] != '\0') {
@@ -122,8 +259,7 @@ static void dial_btnm_event_cb(lv_event_t *e)
 
 static void dial_call_event_cb(lv_event_t *e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_CLICKED) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
         if (s_dial_len > 0) {
             char msg[48];
             rt_snprintf(msg, sizeof(msg), "Calling: %s...", s_dial_buf);
@@ -146,41 +282,25 @@ static void dial_del_event_cb(lv_event_t *e)
     }
 }
 
-/* ----------------------------------------------------------------------------
- * Tab 2: Quick Tools Event Handlers
- * ----------------------------------------------------------------------------
- */
 static void torch_toggle_event_cb(lv_event_t *e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_CLICKED) {
-        s_torch_state = !s_torch_state;
-        torch_set(s_torch_state, s_torch_level);
-        if (s_torch_label) {
-            if (s_torch_state) {
-                lv_label_set_text(s_torch_label, "Torch: ON [Active]");
-                lv_obj_set_style_text_color(s_torch_label, lv_color_hex(0xFFFF00), LV_PART_MAIN);
-            } else {
-                lv_label_set_text(s_torch_label, "Torch: OFF [Ready]");
-                lv_obj_set_style_text_color(s_torch_label, lv_color_hex(0x90A4AE), LV_PART_MAIN);
-            }
-        }
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        torch_toggle_action();
     }
 }
 
-static void torch_level_event_cb(lv_event_t *e)
+static void torch_lvl_event_cb(lv_event_t *e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_CLICKED) {
-        if (s_torch_level == 0x02) {
-            s_torch_level = 0x07;
-            lv_label_set_text(s_torch_lvl_btn, "Level: MID (50%)");
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        if (s_torch_level == 0x03) {
+            s_torch_level = 0x07; /* Mid */
+            lv_label_set_text(lv_obj_get_child(s_torch_lvl_btn, 0), "Level: MID (50%)");
         } else if (s_torch_level == 0x07) {
-            s_torch_level = 0x0F;
-            lv_label_set_text(s_torch_lvl_btn, "Level: MAX (100%)");
+            s_torch_level = 0x0F; /* Max */
+            lv_label_set_text(lv_obj_get_child(s_torch_lvl_btn, 0), "Level: MAX (100%)");
         } else {
-            s_torch_level = 0x02;
-            lv_label_set_text(s_torch_lvl_btn, "Level: LOW (20%)");
+            s_torch_level = 0x03; /* Low */
+            lv_label_set_text(lv_obj_get_child(s_torch_lvl_btn, 0), "Level: LOW (20%)");
         }
         if (s_torch_state) {
             torch_set(1, s_torch_level);
@@ -188,202 +308,307 @@ static void torch_level_event_cb(lv_event_t *e)
     }
 }
 
-static void backlight_cycle_event_cb(lv_event_t *e)
+static void torch_sos_event_cb(lv_event_t *e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_CLICKED) {
-        if (s_bl_percent == 30)      s_bl_percent = 50;
-        else if (s_bl_percent == 50) s_bl_percent = 80;
-        else if (s_bl_percent == 80) s_bl_percent = 100;
-        else                         s_bl_percent = 30;
-
-        backlight_set_brightness(s_bl_percent);
-        if (s_bl_label) {
-            char bl_txt[32];
-            rt_snprintf(bl_txt, sizeof(bl_txt), "Brightness: %u%%", s_bl_percent);
-            lv_label_set_text(s_bl_label, bl_txt);
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        torch_morse_sos(s_torch_level);
+        s_torch_state = 0;
+        torch_set(0, 0);
+        if (s_torch_badge) {
+            lv_label_set_text(s_torch_badge, "TORCH: [ IDLE - OFF ]");
+            lv_obj_set_style_bg_color(s_torch_badge, lv_color_hex(0x37474F), LV_PART_MAIN);
         }
     }
 }
 
-static void pulse_test_event_cb(lv_event_t *e)
+static void bl_btn_event_cb(lv_event_t *e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_CLICKED) {
-        torch_blink(3, 60, 60, s_torch_level);
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        uint32_t val = (uint32_t)(uintptr_t)lv_event_get_user_data(e);
+        s_bl_percent = val;
+        backlight_set_brightness(s_bl_percent);
+        if (s_lbl_bl_val) {
+            char buf[32];
+            rt_snprintf(buf, sizeof(buf), "Brightness: %u%%", s_bl_percent);
+            lv_label_set_text(s_lbl_bl_val, buf);
+        }
     }
 }
 
 /* ----------------------------------------------------------------------------
- * Periodic 1-Second UI Timer Callback
+ * 1-Second Periodic Clock & System Telemetry Timer
  * ----------------------------------------------------------------------------
  */
 static void ui_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    static uint32_t s_uptime_sec = 0;
+    s_uptime_sec++;
 
-    uint32_t uptime_s = timer_get_ms() / 1000U;
-    uint32_t mins = (uptime_s / 60U) % 60U;
-    uint32_t secs = uptime_s % 60U;
+    uint32_t mm = (s_uptime_sec / 60) % 60;
+    uint32_t hh = (s_uptime_sec / 3600) % 24;
+    uint32_t ss = s_uptime_sec % 60;
 
-    /* Update status bar clock/uptime */
+    /* Update Top Status Bar Clock */
     if (s_lbl_clock) {
-        char clk_buf[16];
-        rt_snprintf(clk_buf, sizeof(clk_buf), "%02u:%02u", mins, secs);
-        lv_label_set_text(s_lbl_clock, clk_buf);
+        char buf[16];
+        rt_snprintf(buf, sizeof(buf), "%02u:%02u", hh, mm);
+        lv_label_set_text(s_lbl_clock, buf);
     }
 
-    /* Update Tab 3 real-time RTOS telemetry */
-    if (s_sys_live_label) {
-        char sys_buf[64];
-        rt_snprintf(sys_buf, sizeof(sys_buf), "Uptime: %us | Tick: %u",
-                    uptime_s, (uint32_t)rt_tick_get());
-        lv_label_set_text(s_sys_live_label, sys_buf);
+    /* Update Home Screen Big Clock */
+    if (s_lbl_home_time) {
+        char buf[16];
+        rt_snprintf(buf, sizeof(buf), "%02u:%02u:%02u", hh, mm, ss);
+        lv_label_set_text(s_lbl_home_time, buf);
+    }
+
+    /* Update System Debug Telemetry */
+    if (s_lbl_debug_telemetry && s_current_view == VIEW_DEBUG) {
+        char tbuf[384];
+        rt_snprintf(tbuf, sizeof(tbuf),
+            "OS Name : OpenFeatureOS\n"
+            "Version : v1.0 (Build 2026.11)\n"
+            "Kernel  : RT-Thread 5.4.0 UP\n"
+            "SoC     : Unisoc T107 (UMS9117)\n"
+            "Core    : Cortex-A7 @ 1.0 GHz\n"
+            "DRAM    : 48 MB LPDDR2 (0x80000000)\n"
+            "Heap    : 31.6 MB Volatile\n"
+            "Display : GC9307 240x320 SPI1 DMA\n"
+            "Flash   : 0 NAND WRITES (SAFE)\n"
+            "Uptime  : %u seconds | Ticks: %u",
+            s_uptime_sec, (uint32_t)rt_tick_get());
+        lv_label_set_text(s_lbl_debug_telemetry, tbuf);
     }
 }
 
 /* ----------------------------------------------------------------------------
- * Global Keypad Handler for Softkeys and Direct Numeric Dialing
+ * Global Keypad Handler
  * ----------------------------------------------------------------------------
  */
 static void screen_key_event_cb(lv_event_t *e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_KEY) return;
+    if (lv_event_get_code(e) != LV_EVENT_KEY) return;
+    uint32_t key = lv_event_get_key(e);
 
-    uint32_t key = lv_indev_get_key(lv_indev_get_act());
-
-    /* Left Softkey (LSK): Cycle to next Tab */
-    if (key == LV_KEY_PREV) {
-        if (s_tv) {
-            uint16_t cur = lv_tabview_get_tab_act(s_tv);
-            lv_tabview_set_act(s_tv, (cur + 1) % 4, LV_ANIM_ON);
+    if (s_current_view == VIEW_HOME) {
+        if (key == '1') {
+            switch_view(VIEW_DIALER);
+        } else if (key == '2') {
+            torch_toggle_action();
+        } else if (key == '3') {
+            switch_view(VIEW_DEBUG);
+        } else if (key == '4') {
+            switch_view(VIEW_SETTINGS);
+        } else if (key == LV_KEY_PREV) {
+            /* LSK: Quick launch dialer */
+            switch_view(VIEW_DIALER);
+        } else if (key == LV_KEY_NEXT) {
+            /* RSK: Quick flashlight toggle from Home */
+            torch_toggle_action();
+        } else if ((key >= '0' && key <= '9') || key == '*' || key == '#') {
+            /* Direct typing from home immediately switches to dialer */
+            switch_view(VIEW_DIALER);
+            dialer_append_char((char)key);
         }
-        return;
-    }
-
-    /* Right Softkey (RSK) or ESC: Delete digit or Back to Tab 0 */
-    if (key == LV_KEY_NEXT || key == LV_KEY_ESC) {
-        if (s_dial_len > 0) {
+    } else if (s_current_view == VIEW_DIALER) {
+        if (key == LV_KEY_PREV || key == LV_KEY_ESC) {
+            /* LSK: Back to Home */
+            switch_view(VIEW_HOME);
+        } else if (key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE) {
+            /* RSK: Delete */
             dialer_delete_char();
-        } else if (s_tv && lv_tabview_get_tab_act(s_tv) != 0) {
-            lv_tabview_set_act(s_tv, 0, LV_ANIM_ON);
+        } else if ((key >= '0' && key <= '9') || key == '*' || key == '#') {
+            dialer_append_char((char)key);
         }
-        return;
-    }
-
-    /* Backspace key */
-    if (key == LV_KEY_BACKSPACE) {
-        dialer_delete_char();
-        return;
-    }
-
-    /* Green Call key: Trigger dialer call */
-    if (key == 'C') {
-        if (s_tv) lv_tabview_set_act(s_tv, 0, LV_ANIM_ON);
-        dial_call_event_cb(e);
-        return;
-    }
-
-    /* Dedicated SOS key: Strobe flashlight */
-    if (key == 'S') {
-        torch_blink(5, 50, 50, 0x0F);
-        return;
-    }
-
-    /* Direct Numeric Keypad Input ('0'-'9', '*', '#') */
-    if ((key >= '0' && key <= '9') || key == '*' || key == '#') {
-        if (s_tv && lv_tabview_get_tab_act(s_tv) != 0) {
-            lv_tabview_set_act(s_tv, 0, LV_ANIM_ON);
+    } else {
+        /* Other views: LSK, RSK, or Back key returns to Home */
+        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC) {
+            switch_view(VIEW_HOME);
         }
-        dialer_append_char((char)key);
     }
 }
 
 /* ----------------------------------------------------------------------------
- * UI Construction: Modern OpenFeatureOS Home Interface
+ * Create Top Status Bar (240x24)
  * ----------------------------------------------------------------------------
  */
-static void create_openfeatureos_home(void)
+static void create_status_bar(lv_obj_t *parent)
 {
-    lv_obj_t *scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0A0E17), LV_PART_MAIN);
-
-    /* 1. Top Status Bar (240x24) */
-    s_status_bar = lv_obj_create(scr);
+    s_status_bar = lv_obj_create(parent);
     lv_obj_set_size(s_status_bar, 240, 24);
     lv_obj_set_pos(s_status_bar, 0, 0);
-    lv_obj_set_style_bg_color(s_status_bar, lv_color_hex(0x050811), LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_status_bar, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_status_bar, lv_color_hex(0x060912), LV_PART_MAIN);
+    lv_obj_set_style_border_side(s_status_bar, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_status_bar, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_status_bar, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(s_status_bar, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_status_bar, 2, LV_PART_MAIN);
+    lv_obj_clear_flag(s_status_bar, LV_OBJ_FLAG_SCROLLABLE);
 
     /* 4G VoLTE Badge */
-    s_lbl_signal = lv_label_create(s_status_bar);
-    lv_label_set_text(s_lbl_signal, "4G [VoLTE]");
-    lv_obj_set_style_text_color(s_lbl_signal, lv_color_hex(0x00E5FF), LV_PART_MAIN);
-    lv_obj_align(s_lbl_signal, LV_ALIGN_LEFT_MID, 4, 0);
+    lv_obj_t *lbl_4g = lv_label_create(s_status_bar);
+    lv_label_set_text(lbl_4g, "4G VoLTE");
+    lv_obj_set_style_text_color(lbl_4g, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_align(lbl_4g, LV_ALIGN_LEFT_MID, 6, 0);
 
-    /* Live Digital Clock */
+    /* Clock */
     s_lbl_clock = lv_label_create(s_status_bar);
     lv_label_set_text(s_lbl_clock, "00:00");
     lv_obj_set_style_text_color(s_lbl_clock, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_align(s_lbl_clock, LV_ALIGN_CENTER, 0, 0);
 
     /* Battery Badge */
-    s_lbl_battery = lv_label_create(s_status_bar);
-    lv_label_set_text(s_lbl_battery, "100% [PWR]");
-    lv_obj_set_style_text_color(s_lbl_battery, lv_color_hex(0x00FF88), LV_PART_MAIN);
-    lv_obj_align(s_lbl_battery, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_t *lbl_bat = lv_label_create(s_status_bar);
+    lv_label_set_text(lbl_bat, "100%");
+    lv_obj_set_style_text_color(lbl_bat, lv_color_hex(0x00E676), LV_PART_MAIN);
+    lv_obj_align(lbl_bat, LV_ALIGN_RIGHT_MID, -6, 0);
+}
 
-    /* Thin Cyan Accent Separator */
-    lv_obj_t *bar_line = lv_obj_create(scr);
-    lv_obj_set_size(bar_line, 240, 2);
-    lv_obj_set_pos(bar_line, 0, 24);
-    lv_obj_set_style_bg_color(bar_line, lv_color_hex(0x00E5FF), LV_PART_MAIN);
-    lv_obj_set_style_border_width(bar_line, 0, LV_PART_MAIN);
+/* ----------------------------------------------------------------------------
+ * Create Bottom Softkey Bar (240x24 at y=296)
+ * ----------------------------------------------------------------------------
+ */
+static void create_softkey_bar(lv_obj_t *parent)
+{
+    s_softkey_bar = lv_obj_create(parent);
+    lv_obj_set_size(s_softkey_bar, 240, 24);
+    lv_obj_set_pos(s_softkey_bar, 0, 296);
+    lv_obj_set_style_bg_color(s_softkey_bar, lv_color_hex(0x060912), LV_PART_MAIN);
+    lv_obj_set_style_border_side(s_softkey_bar, LV_BORDER_SIDE_TOP, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_softkey_bar, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_softkey_bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_softkey_bar, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_softkey_bar, 2, LV_PART_MAIN);
+    lv_obj_clear_flag(s_softkey_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* 2. Main Tabview Container (Height 250 px, from y=26 to y=276) */
-    s_tv = lv_tabview_create(scr, LV_DIR_TOP, 30);
-    lv_obj_set_pos(s_tv, 0, 26);
-    lv_obj_set_size(s_tv, 240, 270);
-    lv_obj_set_style_bg_color(s_tv, lv_color_hex(0x0A0E17), LV_PART_MAIN);
+    s_lbl_lsk = lv_label_create(s_softkey_bar);
+    lv_label_set_text(s_lbl_lsk, "LSK: Dialer");
+    lv_obj_set_style_text_color(s_lbl_lsk, lv_color_hex(0x80D8FF), LV_PART_MAIN);
+    lv_obj_align(s_lbl_lsk, LV_ALIGN_LEFT_MID, 6, 0);
 
-    /* Style the Tab buttons header */
-    lv_obj_t *tab_btns = lv_tabview_get_tab_btns(s_tv);
-    lv_obj_set_style_bg_color(tab_btns, lv_color_hex(0x0D1626), LV_PART_MAIN);
-    lv_obj_set_style_text_color(tab_btns, lv_color_hex(0x90A4AE), LV_PART_MAIN);
-    lv_obj_set_style_text_color(tab_btns, lv_color_hex(0x00E5FF), LV_PART_ITEMS | LV_STATE_CHECKED);
-    lv_obj_set_style_border_side(tab_btns, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
-    lv_obj_set_style_border_color(tab_btns, lv_color_hex(0x1E2A40), LV_PART_MAIN);
-    lv_obj_set_style_border_width(tab_btns, 1, LV_PART_MAIN);
+    s_lbl_ok = lv_label_create(s_softkey_bar);
+    lv_label_set_text(s_lbl_ok, "OK: Open");
+    lv_obj_set_style_text_color(s_lbl_ok, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_align(s_lbl_ok, LV_ALIGN_CENTER, 0, 0);
 
-    /* Add the 4 feature tabs */
-    lv_obj_t *tab_dial = lv_tabview_add_tab(s_tv, "Dialer");
-    lv_obj_t *tab_tools = lv_tabview_add_tab(s_tv, "Tools");
-    lv_obj_t *tab_sys = lv_tabview_add_tab(s_tv, "System");
-    lv_obj_t *tab_disp = lv_tabview_add_tab(s_tv, "Display");
+    s_lbl_rsk = lv_label_create(s_softkey_bar);
+    lv_label_set_text(s_lbl_rsk, "RSK: Torch");
+    lv_obj_set_style_text_color(s_lbl_rsk, lv_color_hex(0x80D8FF), LV_PART_MAIN);
+    lv_obj_align(s_lbl_rsk, LV_ALIGN_RIGHT_MID, -6, 0);
+}
 
-    lv_obj_set_style_pad_all(tab_dial, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(tab_tools, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(tab_sys, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(tab_disp, 4, LV_PART_MAIN);
+/* ----------------------------------------------------------------------------
+ * View 1: Home View (Feature Phone Wallpaper & App Launcher)
+ * ----------------------------------------------------------------------------
+ */
+static void create_home_view(lv_obj_t *parent)
+{
+    s_cont_home = lv_obj_create(parent);
+    lv_obj_set_size(s_cont_home, 240, 272);
+    lv_obj_set_pos(s_cont_home, 0, 24);
+    /* Wallpaper: Deep Indigo Night with subtle texture */
+    lv_obj_set_style_bg_color(s_cont_home, lv_color_hex(0x0C1222), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_cont_home, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_cont_home, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_cont_home, 6, LV_PART_MAIN);
+    lv_obj_clear_flag(s_cont_home, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* ========================================================================
-     * TAB 1: PHONE DIALER
-     * ========================================================================
-     */
-    /* Dialed Number Display Box */
-    lv_obj_t *dial_box = lv_obj_create(tab_dial);
-    lv_obj_set_size(dial_box, 226, 32);
-    lv_obj_set_pos(dial_box, 3, 2);
-    lv_obj_set_style_bg_color(dial_box, lv_color_hex(0x060911), LV_PART_MAIN);
-    lv_obj_set_style_border_color(dial_box, lv_color_hex(0x00E5FF), LV_PART_MAIN);
-    lv_obj_set_style_border_width(dial_box, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(dial_box, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(dial_box, 2, LV_PART_MAIN);
+    /* Wallpaper Clock Widget Card */
+    lv_obj_t *card_clock = lv_obj_create(s_cont_home);
+    lv_obj_set_size(card_clock, 228, 76);
+    lv_obj_set_pos(card_clock, 0, 2);
+    lv_obj_set_style_bg_color(card_clock, lv_color_hex(0x131D33), LV_PART_MAIN);
+    lv_obj_set_style_border_color(card_clock, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(card_clock, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(card_clock, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(card_clock, 4, LV_PART_MAIN);
+    lv_obj_clear_flag(card_clock, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_dial_label = lv_label_create(dial_box);
+    s_lbl_home_time = lv_label_create(card_clock);
+    lv_label_set_text(s_lbl_home_time, "00:00:00");
+    lv_obj_set_style_text_color(s_lbl_home_time, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_align(s_lbl_home_time, LV_ALIGN_TOP_MID, 0, 2);
+
+    s_lbl_home_date = lv_label_create(card_clock);
+    lv_label_set_text(s_lbl_home_date, "Sunday, 8 Nov 2026");
+    lv_obj_set_style_text_color(s_lbl_home_date, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_align(s_lbl_home_date, LV_ALIGN_CENTER, 0, 8);
+
+    lv_obj_t *lbl_op = lv_label_create(card_clock);
+    lv_label_set_text(lbl_op, "OpenFeatureOS 4G • Volatile DRAM");
+    lv_obj_set_style_text_color(lbl_op, lv_color_hex(0x78909C), LV_PART_MAIN);
+    lv_obj_align(lbl_op, LV_ALIGN_BOTTOM_MID, 0, -2);
+
+    /* Feature Phone Apps Grid / Vertical List */
+    const char *app_names[4] = {
+        "[1] Phone Dialer",
+        "[2] Flashlight: [ OFF ]",
+        "[3] System Debug & Specs",
+        "[4] Settings & Display"
+    };
+
+    int start_y = 86;
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *btn = lv_btn_create(s_cont_home);
+        lv_obj_set_size(btn, 228, 38);
+        lv_obj_set_pos(btn, 0, start_y + (i * 44));
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x131D33), LV_PART_MAIN);
+        lv_obj_set_style_border_color(btn, lv_color_hex(0x1E2E4E), LV_PART_MAIN);
+        lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN);
+        lv_obj_set_style_radius(btn, 6, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(btn, 4, LV_PART_MAIN);
+
+        /* Glowing focus style for keypad navigation */
+        lv_obj_set_style_border_color(btn, lv_color_hex(0x00E5FF), LV_STATE_FOCUSED);
+        lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x1B2C4E), LV_STATE_FOCUSED);
+
+        lv_obj_add_event_cb(btn, home_app_click_cb, LV_EVENT_CLICKED, NULL);
+
+        lv_obj_t *lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, app_names[i]);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 8, 0);
+
+        s_btn_home_apps[i] = btn;
+        if (i == 1) {
+            s_lbl_home_torch_status = lbl;
+        }
+
+        if (g_lvgl_keypad_group) {
+            lv_group_add_obj(g_lvgl_keypad_group, btn);
+        }
+    }
+}
+
+/* ----------------------------------------------------------------------------
+ * View 2: Phone Dialer
+ * ----------------------------------------------------------------------------
+ */
+static void create_dialer_view(lv_obj_t *parent)
+{
+    s_cont_dialer = lv_obj_create(parent);
+    lv_obj_set_size(s_cont_dialer, 240, 272);
+    lv_obj_set_pos(s_cont_dialer, 0, 24);
+    lv_obj_set_style_bg_color(s_cont_dialer, lv_color_hex(0x0A0F1D), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_cont_dialer, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_cont_dialer, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_cont_dialer, 4, LV_PART_MAIN);
+    lv_obj_clear_flag(s_cont_dialer, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Dialed Digits Readout Box */
+    lv_obj_t *card_readout = lv_obj_create(s_cont_dialer);
+    lv_obj_set_size(card_readout, 232, 40);
+    lv_obj_set_pos(card_readout, 0, 2);
+    lv_obj_set_style_bg_color(card_readout, lv_color_hex(0x060912), LV_PART_MAIN);
+    lv_obj_set_style_border_color(card_readout, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(card_readout, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(card_readout, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(card_readout, 4, LV_PART_MAIN);
+    lv_obj_clear_flag(card_readout, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_dial_label = lv_label_create(card_readout);
     lv_label_set_text(s_dial_label, "Enter Number...");
     lv_obj_set_style_text_color(s_dial_label, lv_color_hex(0x607D8B), LV_PART_MAIN);
     lv_obj_align(s_dial_label, LV_ALIGN_CENTER, 0, 0);
@@ -395,269 +620,339 @@ static void create_openfeatureos_home(void)
         "7", "8", "9", "\n",
         "*", "0", "#", ""
     };
-    s_btnm_dial = lv_btnmatrix_create(tab_dial);
+
+    s_btnm_dial = lv_btnmatrix_create(s_cont_dialer);
     lv_btnmatrix_set_map(s_btnm_dial, btnm_map);
-    lv_obj_set_size(s_btnm_dial, 226, 142);
-    lv_obj_set_pos(s_btnm_dial, 3, 38);
-    lv_obj_set_style_bg_color(s_btnm_dial, lv_color_hex(0x0D1626), LV_PART_MAIN);
-    lv_obj_set_style_border_color(s_btnm_dial, lv_color_hex(0x1E2A40), LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_btnm_dial, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_btnm_dial, 6, LV_PART_MAIN);
+    lv_obj_set_size(s_btnm_dial, 232, 170);
+    lv_obj_set_pos(s_btnm_dial, 0, 48);
+    lv_obj_set_style_bg_color(s_btnm_dial, lv_color_hex(0x0A0F1D), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_btnm_dial, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_btnm_dial, 4, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_btnm_dial, 2, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_btnm_dial, lv_color_hex(0x142035), LV_PART_ITEMS);
+
+    /* Keys Style */
+    lv_obj_set_style_bg_color(s_btnm_dial, lv_color_hex(0x152238), LV_PART_ITEMS);
     lv_obj_set_style_text_color(s_btnm_dial, lv_color_hex(0xFFFFFF), LV_PART_ITEMS);
-    lv_obj_set_style_radius(s_btnm_dial, 4, LV_PART_ITEMS);
+    lv_obj_set_style_border_color(s_btnm_dial, lv_color_hex(0x1E3A5F), LV_PART_ITEMS);
+    lv_obj_set_style_border_width(s_btnm_dial, 1, LV_PART_ITEMS);
+    lv_obj_set_style_radius(s_btnm_dial, 6, LV_PART_ITEMS);
+
+    /* Focus Highlight */
+    lv_obj_set_style_bg_color(s_btnm_dial, lv_color_hex(0x00E5FF), LV_PART_ITEMS | LV_STATE_FOCUSED);
+    lv_obj_set_style_text_color(s_btnm_dial, lv_color_hex(0x000000), LV_PART_ITEMS | LV_STATE_FOCUSED);
+
     lv_obj_add_event_cb(s_btnm_dial, dial_btnm_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_group_add_obj(g_lvgl_keypad_group, s_btnm_dial);
 
-    /* Action Buttons (CALL & CLEAR) */
-    s_btn_call = lv_btn_create(tab_dial);
-    lv_obj_set_size(s_btn_call, 108, 30);
-    lv_obj_set_pos(s_btn_call, 3, 184);
-    lv_obj_set_style_bg_color(s_btn_call, lv_color_hex(0x00A844), LV_PART_MAIN);
-    lv_obj_set_style_radius(s_btn_call, 6, LV_PART_MAIN);
-    lv_obj_t *lbl_call = lv_label_create(s_btn_call);
+    /* Action Buttons: CALL and CLEAR */
+    lv_obj_t *btn_call = lv_btn_create(s_cont_dialer);
+    lv_obj_set_size(btn_call, 112, 38);
+    lv_obj_set_pos(btn_call, 0, 224);
+    lv_obj_set_style_bg_color(btn_call, lv_color_hex(0x00C853), LV_PART_MAIN);
+    lv_obj_set_style_radius(btn_call, 6, LV_PART_MAIN);
+    lv_obj_add_event_cb(btn_call, dial_call_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl_call = lv_label_create(btn_call);
     lv_label_set_text(lbl_call, "CALL");
+    lv_obj_set_style_text_color(lbl_call, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_align(lbl_call, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(s_btn_call, dial_call_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_group_add_obj(g_lvgl_keypad_group, s_btn_call);
 
-    s_btn_del = lv_btn_create(tab_dial);
-    lv_obj_set_size(s_btn_del, 108, 30);
-    lv_obj_set_pos(s_btn_del, 121, 184);
-    lv_obj_set_style_bg_color(s_btn_del, lv_color_hex(0xD50000), LV_PART_MAIN);
-    lv_obj_set_style_radius(s_btn_del, 6, LV_PART_MAIN);
-    lv_obj_t *lbl_del = lv_label_create(s_btn_del);
+    lv_obj_t *btn_del = lv_btn_create(s_cont_dialer);
+    lv_obj_set_size(btn_del, 112, 38);
+    lv_obj_set_pos(btn_del, 120, 224);
+    lv_obj_set_style_bg_color(btn_del, lv_color_hex(0xD50000), LV_PART_MAIN);
+    lv_obj_set_style_radius(btn_del, 6, LV_PART_MAIN);
+    lv_obj_add_event_cb(btn_del, dial_del_event_cb, LV_EVENT_ALL, NULL);
+
+    lv_obj_t *lbl_del = lv_label_create(btn_del);
     lv_label_set_text(lbl_del, "CLEAR");
+    lv_obj_set_style_text_color(lbl_del, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_align(lbl_del, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(s_btn_del, dial_del_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_group_add_obj(g_lvgl_keypad_group, s_btn_del);
 
-    /* ========================================================================
-     * TAB 2: QUICK TOOLS (Flashlight, Backlight, Haptics)
-     * ========================================================================
-     */
-    /* Card 1: Flashlight / Torch */
-    lv_obj_t *card_torch = lv_obj_create(tab_tools);
-    lv_obj_set_size(card_torch, 226, 68);
-    lv_obj_set_pos(card_torch, 3, 2);
-    lv_obj_set_style_bg_color(card_torch, lv_color_hex(0x131B2A), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card_torch, lv_color_hex(0x1E2A40), LV_PART_MAIN);
-    lv_obj_set_style_border_width(card_torch, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(card_torch, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(card_torch, 4, LV_PART_MAIN);
+    if (g_lvgl_keypad_group) {
+        lv_group_add_obj(g_lvgl_keypad_group, s_btnm_dial);
+        lv_group_add_obj(g_lvgl_keypad_group, btn_call);
+        lv_group_add_obj(g_lvgl_keypad_group, btn_del);
+    }
 
-    s_torch_label = lv_label_create(card_torch);
-    lv_label_set_text(s_torch_label, "Torch: OFF [Ready]");
-    lv_obj_set_style_text_color(s_torch_label, lv_color_hex(0x90A4AE), LV_PART_MAIN);
-    lv_obj_set_pos(s_torch_label, 4, 2);
+    lv_obj_add_flag(s_cont_dialer, LV_OBJ_FLAG_HIDDEN);
+}
 
-    s_torch_btn = lv_btn_create(card_torch);
-    lv_obj_set_size(s_torch_btn, 102, 28);
-    lv_obj_set_pos(s_torch_btn, 4, 26);
-    lv_obj_set_style_bg_color(s_torch_btn, lv_color_hex(0x007ACC), LV_PART_MAIN);
-    lv_obj_t *lbl_t_btn = lv_label_create(s_torch_btn);
-    lv_label_set_text(lbl_t_btn, "Toggle");
-    lv_obj_align(lbl_t_btn, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(s_torch_btn, torch_toggle_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_group_add_obj(g_lvgl_keypad_group, s_torch_btn);
+/* ----------------------------------------------------------------------------
+ * View 3: Torch / Flashlight Tool
+ * ----------------------------------------------------------------------------
+ */
+static void create_torch_view(lv_obj_t *parent)
+{
+    s_cont_torch = lv_obj_create(parent);
+    lv_obj_set_size(s_cont_torch, 240, 272);
+    lv_obj_set_pos(s_cont_torch, 0, 24);
+    lv_obj_set_style_bg_color(s_cont_torch, lv_color_hex(0x0A0F1D), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_cont_torch, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_cont_torch, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_cont_torch, 8, LV_PART_MAIN);
+    lv_obj_clear_flag(s_cont_torch, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_torch_lvl_btn = lv_btn_create(card_torch);
-    lv_obj_set_size(s_torch_lvl_btn, 106, 28);
-    lv_obj_set_pos(s_torch_lvl_btn, 110, 26);
-    lv_obj_set_style_bg_color(s_torch_lvl_btn, lv_color_hex(0x23334D), LV_PART_MAIN);
-    lv_obj_t *lbl_t_lvl = lv_label_create(s_torch_lvl_btn);
-    lv_label_set_text(lbl_t_lvl, "Max (100%)");
-    lv_obj_align(lbl_t_lvl, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(s_torch_lvl_btn, torch_level_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_group_add_obj(g_lvgl_keypad_group, s_torch_lvl_btn);
+    /* Header Title */
+    lv_obj_t *title = lv_label_create(s_cont_torch);
+    lv_label_set_text(title, "FLASHLIGHT TOOL");
+    lv_obj_set_style_text_color(title, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
 
-    /* Card 2: Backlight Control */
-    lv_obj_t *card_bl = lv_obj_create(tab_tools);
-    lv_obj_set_size(card_bl, 226, 68);
-    lv_obj_set_pos(card_bl, 3, 74);
-    lv_obj_set_style_bg_color(card_bl, lv_color_hex(0x131B2A), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card_bl, lv_color_hex(0x1E2A40), LV_PART_MAIN);
+    /* Large Status Badge */
+    s_torch_badge = lv_label_create(s_cont_torch);
+    lv_label_set_text(s_torch_badge, "TORCH: [ IDLE - OFF ]");
+    lv_obj_set_style_bg_color(s_torch_badge, lv_color_hex(0x37474F), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_torch_badge, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_torch_badge, lv_color_hex(0xB0BEC5), LV_PART_MAIN);
+    lv_obj_set_style_radius(s_torch_badge, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_torch_badge, 10, LV_PART_MAIN);
+    lv_obj_set_width(s_torch_badge, 220);
+    lv_obj_set_style_text_align(s_torch_badge, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_pos(s_torch_badge, 2, 34);
+
+    /* Toggle Button */
+    s_torch_toggle_btn = lv_btn_create(s_cont_torch);
+    lv_obj_set_size(s_torch_toggle_btn, 220, 44);
+    lv_obj_set_pos(s_torch_toggle_btn, 2, 88);
+    lv_obj_set_style_bg_color(s_torch_toggle_btn, lv_color_hex(0x0288D1), LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_torch_toggle_btn, lv_color_hex(0x00E5FF), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(s_torch_toggle_btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(s_torch_toggle_btn, 6, LV_PART_MAIN);
+    lv_obj_add_event_cb(s_torch_toggle_btn, torch_toggle_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl_toggle = lv_label_create(s_torch_toggle_btn);
+    lv_label_set_text(lbl_toggle, "TOGGLE TORCH (OK)");
+    lv_obj_set_style_text_color(lbl_toggle, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_align(lbl_toggle, LV_ALIGN_CENTER, 0, 0);
+
+    /* Brightness Level Button */
+    s_torch_lvl_btn = lv_btn_create(s_cont_torch);
+    lv_obj_set_size(s_torch_lvl_btn, 220, 40);
+    lv_obj_set_pos(s_torch_lvl_btn, 2, 142);
+    lv_obj_set_style_bg_color(s_torch_lvl_btn, lv_color_hex(0x263238), LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_torch_lvl_btn, lv_color_hex(0x00E5FF), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(s_torch_lvl_btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(s_torch_lvl_btn, 6, LV_PART_MAIN);
+    lv_obj_add_event_cb(s_torch_lvl_btn, torch_lvl_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl_lvl = lv_label_create(s_torch_lvl_btn);
+    lv_label_set_text(lbl_lvl, "Level: MAX (100%)");
+    lv_obj_set_style_text_color(lbl_lvl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_align(lbl_lvl, LV_ALIGN_CENTER, 0, 0);
+
+    /* SOS Morse Strobe Button */
+    lv_obj_t *btn_sos = lv_btn_create(s_cont_torch);
+    lv_obj_set_size(btn_sos, 220, 40);
+    lv_obj_set_pos(btn_sos, 2, 192);
+    lv_obj_set_style_bg_color(btn_sos, lv_color_hex(0xBF360C), LV_PART_MAIN);
+    lv_obj_set_style_border_color(btn_sos, lv_color_hex(0x00E5FF), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(btn_sos, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_radius(btn_sos, 6, LV_PART_MAIN);
+    lv_obj_add_event_cb(btn_sos, torch_sos_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl_sos = lv_label_create(btn_sos);
+    lv_label_set_text(lbl_sos, "STROBE SOS BEACON");
+    lv_obj_set_style_text_color(lbl_sos, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_align(lbl_sos, LV_ALIGN_CENTER, 0, 0);
+
+    if (g_lvgl_keypad_group) {
+        lv_group_add_obj(g_lvgl_keypad_group, s_torch_toggle_btn);
+        lv_group_add_obj(g_lvgl_keypad_group, s_torch_lvl_btn);
+        lv_group_add_obj(g_lvgl_keypad_group, btn_sos);
+    }
+
+    lv_obj_add_flag(s_cont_torch, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* ----------------------------------------------------------------------------
+ * View 4: System Debug & Hardware Telemetry (Requested by User!)
+ * ----------------------------------------------------------------------------
+ */
+static void create_debug_view(lv_obj_t *parent)
+{
+    s_cont_debug = lv_obj_create(parent);
+    lv_obj_set_size(s_cont_debug, 240, 272);
+    lv_obj_set_pos(s_cont_debug, 0, 24);
+    lv_obj_set_style_bg_color(s_cont_debug, lv_color_hex(0x0A0F1D), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_cont_debug, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_cont_debug, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_cont_debug, 6, LV_PART_MAIN);
+    lv_obj_clear_flag(s_cont_debug, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Header Title */
+    lv_obj_t *title = lv_label_create(s_cont_debug);
+    lv_label_set_text(title, "SYSTEM DEBUG & HARDWARE");
+    lv_obj_set_style_text_color(title, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 2);
+
+    /* Telemetry Card */
+    lv_obj_t *card = lv_obj_create(s_cont_debug);
+    lv_obj_set_size(card, 228, 230);
+    lv_obj_set_pos(card, 0, 24);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x131D33), LV_PART_MAIN);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_set_style_border_width(card, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(card, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(card, 6, LV_PART_MAIN);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_lbl_debug_telemetry = lv_label_create(card);
+    lv_obj_set_style_text_color(s_lbl_debug_telemetry, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_line_space(s_lbl_debug_telemetry, 4, LV_PART_MAIN);
+
+    /* Static initial content */
+    lv_label_set_text(s_lbl_debug_telemetry,
+        "OS Name : OpenFeatureOS\n"
+        "Version : v1.0 (Build 2026.11)\n"
+        "Kernel  : RT-Thread 5.4.0 UP\n"
+        "SoC     : Unisoc T107 (UMS9117)\n"
+        "Core    : Cortex-A7 @ 1.0 GHz\n"
+        "DRAM    : 48 MB LPDDR2 (0x80000000)\n"
+        "Heap    : 31.6 MB Volatile\n"
+        "Display : GC9307 240x320 SPI1 DMA\n"
+        "Flash   : 0 NAND WRITES (SAFE)\n"
+        "Uptime  : Initializing...");
+    lv_obj_align(s_lbl_debug_telemetry, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_add_flag(s_cont_debug, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* ----------------------------------------------------------------------------
+ * View 5: Settings & Display
+ * ----------------------------------------------------------------------------
+ */
+static void create_settings_view(lv_obj_t *parent)
+{
+    s_cont_settings = lv_obj_create(parent);
+    lv_obj_set_size(s_cont_settings, 240, 272);
+    lv_obj_set_pos(s_cont_settings, 0, 24);
+    lv_obj_set_style_bg_color(s_cont_settings, lv_color_hex(0x0A0F1D), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_cont_settings, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_cont_settings, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_cont_settings, 6, LV_PART_MAIN);
+    lv_obj_clear_flag(s_cont_settings, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Header Title */
+    lv_obj_t *title = lv_label_create(s_cont_settings);
+    lv_label_set_text(title, "SETTINGS & TOOLS");
+    lv_obj_set_style_text_color(title, lv_color_hex(0x00E5FF), LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 2);
+
+    /* Backlight Group Card */
+    lv_obj_t *card_bl = lv_obj_create(s_cont_settings);
+    lv_obj_set_size(card_bl, 228, 92);
+    lv_obj_set_pos(card_bl, 0, 24);
+    lv_obj_set_style_bg_color(card_bl, lv_color_hex(0x131D33), LV_PART_MAIN);
+    lv_obj_set_style_border_color(card_bl, lv_color_hex(0x1E3A5F), LV_PART_MAIN);
     lv_obj_set_style_border_width(card_bl, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(card_bl, 6, LV_PART_MAIN);
     lv_obj_set_style_pad_all(card_bl, 4, LV_PART_MAIN);
+    lv_obj_clear_flag(card_bl, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_bl_label = lv_label_create(card_bl);
-    lv_label_set_text(s_bl_label, "Brightness: 80%");
-    lv_obj_set_style_text_color(s_bl_label, lv_color_hex(0x00E5FF), LV_PART_MAIN);
-    lv_obj_set_pos(s_bl_label, 4, 2);
+    s_lbl_bl_val = lv_label_create(card_bl);
+    lv_label_set_text(s_lbl_bl_val, "Screen Brightness: 80%");
+    lv_obj_set_style_text_color(s_lbl_bl_val, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_align(s_lbl_bl_val, LV_ALIGN_TOP_MID, 0, 2);
 
-    lv_obj_t *btn_bl = lv_btn_create(card_bl);
-    lv_obj_set_size(btn_bl, 212, 28);
-    lv_obj_set_pos(btn_bl, 4, 26);
-    lv_obj_set_style_bg_color(btn_bl, lv_color_hex(0x0D3B66), LV_PART_MAIN);
-    lv_obj_t *lbl_bl_btn = lv_label_create(btn_bl);
-    lv_label_set_text(lbl_bl_btn, "Cycle 30% / 50% / 80% / 100%");
-    lv_obj_align(lbl_bl_btn, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(btn_bl, backlight_cycle_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_group_add_obj(g_lvgl_keypad_group, btn_bl);
+    /* 4 Brightness Preset Buttons */
+    const uint32_t presets[4] = { 30, 50, 80, 100 };
+    const char *preset_labels[4] = { "30%", "50%", "80%", "100%" };
 
-    /* Card 3: Optical Diagnostic Strobe */
-    lv_obj_t *card_diag = lv_obj_create(tab_tools);
-    lv_obj_set_size(card_diag, 226, 68);
-    lv_obj_set_pos(card_diag, 3, 146);
-    lv_obj_set_style_bg_color(card_diag, lv_color_hex(0x131B2A), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card_diag, lv_color_hex(0x1E2A40), LV_PART_MAIN);
-    lv_obj_set_style_border_width(card_diag, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(card_diag, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(card_diag, 4, LV_PART_MAIN);
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *btn = lv_btn_create(card_bl);
+        lv_obj_set_size(btn, 50, 36);
+        lv_obj_set_pos(btn, i * 54, 40);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x0288D1), LV_PART_MAIN);
+        lv_obj_set_style_border_color(btn, lv_color_hex(0x00E5FF), LV_STATE_FOCUSED);
+        lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUSED);
+        lv_obj_set_style_radius(btn, 4, LV_PART_MAIN);
+        lv_obj_add_event_cb(btn, bl_btn_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)presets[i]);
 
-    lv_obj_t *lbl_diag = lv_label_create(card_diag);
-    lv_label_set_text(lbl_diag, "Optical Sign-of-Life");
-    lv_obj_set_style_text_color(s_bl_label, lv_color_hex(0x90A4AE), LV_PART_MAIN);
-    lv_obj_set_pos(lbl_diag, 4, 2);
+        lv_obj_t *lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, preset_labels[i]);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t *btn_pulse = lv_btn_create(card_diag);
-    lv_obj_set_size(btn_pulse, 212, 28);
-    lv_obj_set_pos(btn_pulse, 4, 26);
-    lv_obj_set_style_bg_color(btn_pulse, lv_color_hex(0x4A148C), LV_PART_MAIN);
-    lv_obj_t *lbl_p_btn = lv_label_create(btn_pulse);
-    lv_label_set_text(lbl_p_btn, "Flash Strobe Test (3x)");
-    lv_obj_align(lbl_p_btn, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(btn_pulse, pulse_test_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_group_add_obj(g_lvgl_keypad_group, btn_pulse);
+        if (g_lvgl_keypad_group) {
+            lv_group_add_obj(g_lvgl_keypad_group, btn);
+        }
+    }
 
-    /* ========================================================================
-     * TAB 3: SYSTEM TELEMETRY
-     * ========================================================================
-     */
-    lv_obj_t *card_spec = lv_obj_create(tab_sys);
-    lv_obj_set_size(card_spec, 226, 136);
-    lv_obj_set_pos(card_spec, 3, 2);
-    lv_obj_set_style_bg_color(card_spec, lv_color_hex(0x131B2A), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card_spec, lv_color_hex(0x1E2A40), LV_PART_MAIN);
-    lv_obj_set_style_border_width(card_spec, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(card_spec, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(card_spec, 6, LV_PART_MAIN);
+    /* Display Color Calibration Swatches Card */
+    lv_obj_t *card_swatch = lv_obj_create(s_cont_settings);
+    lv_obj_set_size(card_swatch, 228, 116);
+    lv_obj_set_pos(card_swatch, 0, 122);
+    lv_obj_set_style_bg_color(card_swatch, lv_color_hex(0x131D33), LV_PART_MAIN);
+    lv_obj_set_style_border_color(card_swatch, lv_color_hex(0x1E3A5F), LV_PART_MAIN);
+    lv_obj_set_style_border_width(card_swatch, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(card_swatch, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(card_swatch, 4, LV_PART_MAIN);
+    lv_obj_clear_flag(card_swatch, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *spec_txt = lv_label_create(card_spec);
-    lv_label_set_text(spec_txt,
-                      "Platform: Unisoc T107 (UMS9117)\n"
-                      "Core    : ARM Cortex-A7 @ 1.0 GHz\n"
-                      "Kernel  : RT-Thread 5.4.0 RTOS\n"
-                      "Memory  : 48 MB LPDDR (31 MB Heap)\n"
-                      "Display : GC9307 240x320 @ 48 MHz\n"
-                      "Safety  : 100% Volatile DRAM Boot");
-    lv_obj_set_style_text_color(spec_txt, lv_color_hex(0xCFD8DC), LV_PART_MAIN);
-    lv_obj_set_pos(spec_txt, 2, 2);
+    lv_obj_t *lbl_sw = lv_label_create(card_swatch);
+    lv_label_set_text(lbl_sw, "RGB565 Color Calibration");
+    lv_obj_set_style_text_color(lbl_sw, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_align(lbl_sw, LV_ALIGN_TOP_MID, 0, 2);
 
-    /* Live Telemetry Card */
-    lv_obj_t *card_live = lv_obj_create(tab_sys);
-    lv_obj_set_size(card_live, 226, 70);
-    lv_obj_set_pos(card_live, 3, 142);
-    lv_obj_set_style_bg_color(card_live, lv_color_hex(0x060911), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card_live, lv_color_hex(0x00FF88), LV_PART_MAIN);
-    lv_obj_set_style_border_width(card_live, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(card_live, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(card_live, 6, LV_PART_MAIN);
-
-    lv_obj_t *live_hdr = lv_label_create(card_live);
-    lv_label_set_text(live_hdr, "STATUS: SCHEDULER HEALTHY");
-    lv_obj_set_style_text_color(live_hdr, lv_color_hex(0x00FF88), LV_PART_MAIN);
-    lv_obj_set_pos(live_hdr, 2, 2);
-
-    s_sys_live_label = lv_label_create(card_live);
-    lv_label_set_text(s_sys_live_label, "Uptime: 0s | Tick: 0");
-    lv_obj_set_style_text_color(s_sys_live_label, lv_color_hex(0x00E5FF), LV_PART_MAIN);
-    lv_obj_set_pos(s_sys_live_label, 2, 24);
-
-    /* ========================================================================
-     * TAB 4: DISPLAY CALIBRATION & COLOR SWATCHES
-     * ========================================================================
-     */
-    lv_obj_t *card_colors = lv_obj_create(tab_disp);
-    lv_obj_set_size(card_colors, 226, 110);
-    lv_obj_set_pos(card_colors, 3, 2);
-    lv_obj_set_style_bg_color(card_colors, lv_color_hex(0x131B2A), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card_colors, lv_color_hex(0x1E2A40), LV_PART_MAIN);
-    lv_obj_set_style_border_width(card_colors, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(card_colors, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(card_colors, 4, LV_PART_MAIN);
-
-    lv_obj_t *c_lbl = lv_label_create(card_colors);
-    lv_label_set_text(c_lbl, "RGB565 Color Swatches:");
-    lv_obj_set_style_text_color(c_lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_pos(c_lbl, 2, 2);
-
-    /* 8 Color Blocks */
-    static const uint32_t swatches[] = {
-        0xFFFFFF, 0x00E5FF, 0xFFEB3B, 0x00E676,
-        0xE040FB, 0xFF1744, 0x2979FF, 0x78909C
+    /* 8 Color Swatches */
+    const uint32_t colors[8] = {
+        0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF,
+        0x00FFFF, 0xFFFF00, 0xFF00FF, 0x757575
     };
-    int sw_w = 26;
+    int w = 218 / 8;
     for (int i = 0; i < 8; i++) {
-        lv_obj_t *sw = lv_obj_create(card_colors);
-        lv_obj_set_size(sw, sw_w - 2, 34);
-        lv_obj_set_pos(sw, 4 + (i * sw_w), 24);
-        lv_obj_set_style_bg_color(sw, lv_color_hex(swatches[i]), LV_PART_MAIN);
-        lv_obj_set_style_border_width(sw, 0, LV_PART_MAIN);
-        lv_obj_set_style_radius(sw, 2, LV_PART_MAIN);
+        lv_obj_t *b = lv_obj_create(card_swatch);
+        lv_obj_set_size(b, w, 32);
+        lv_obj_set_pos(b, i * w, 28);
+        lv_obj_set_style_bg_color(b, lv_color_hex(colors[i]), LV_PART_MAIN);
+        lv_obj_set_style_border_width(b, 0, LV_PART_MAIN);
+        lv_obj_set_style_radius(b, 2, LV_PART_MAIN);
     }
 
     /* Grayscale Ramp */
-    lv_obj_t *g_bar = lv_obj_create(card_colors);
-    lv_obj_set_size(g_bar, 212, 14);
-    lv_obj_set_pos(g_bar, 4, 66);
-    lv_obj_set_style_bg_color(g_bar, lv_color_hex(0x424242), LV_PART_MAIN);
-    lv_obj_set_style_border_width(g_bar, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(g_bar, 2, LV_PART_MAIN);
+    for (int i = 0; i < 8; i++) {
+        uint32_t c = (i * 36);
+        uint32_t rgb = (c << 16) | (c << 8) | c;
+        lv_obj_t *b = lv_obj_create(card_swatch);
+        lv_obj_set_size(b, w, 24);
+        lv_obj_set_pos(b, i * w, 68);
+        lv_obj_set_style_bg_color(b, lv_color_hex(rgb), LV_PART_MAIN);
+        lv_obj_set_style_border_width(b, 0, LV_PART_MAIN);
+        lv_obj_set_style_radius(b, 2, LV_PART_MAIN);
+    }
 
-    /* Panel Specs Card */
-    lv_obj_t *card_pinfo = lv_obj_create(tab_disp);
-    lv_obj_set_size(card_pinfo, 226, 96);
-    lv_obj_set_pos(card_pinfo, 3, 116);
-    lv_obj_set_style_bg_color(card_pinfo, lv_color_hex(0x131B2A), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card_pinfo, lv_color_hex(0x1E2A40), LV_PART_MAIN);
-    lv_obj_set_style_border_width(card_pinfo, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(card_pinfo, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(card_pinfo, 6, LV_PART_MAIN);
+    lv_obj_add_flag(s_cont_settings, LV_OBJ_FLAG_HIDDEN);
+}
 
-    s_disp_info_label = lv_label_create(card_pinfo);
-    lv_label_set_text(s_disp_info_label,
-                      "Controller: GC9307 TFT\n"
-                      "Resolution: 240 x 320 QVGA\n"
-                      "Colors    : 65,536 (RGB565)\n"
-                      "Bus Speed : 48 MHz (SPI1 DMA)\n"
-                      "Backlight : SC2720 PMIC Dual Sink");
-    lv_obj_set_style_text_color(s_disp_info_label, lv_color_hex(0xB0BEC5), LV_PART_MAIN);
-    lv_obj_set_pos(s_disp_info_label, 2, 2);
+/* ----------------------------------------------------------------------------
+ * Master Feature Phone Launcher Initializer
+ * ----------------------------------------------------------------------------
+ */
+static void create_openfeatureos_home(void)
+{
+    lv_obj_t *scr = lv_scr_act();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0A0F1D), LV_PART_MAIN);
 
-    /* 3. Bottom Softkey Bar (240x24 at y=296) */
-    s_softkey_bar = lv_obj_create(scr);
-    lv_obj_set_size(s_softkey_bar, 240, 24);
-    lv_obj_set_pos(s_softkey_bar, 0, 296);
-    lv_obj_set_style_bg_color(s_softkey_bar, lv_color_hex(0x050811), LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_softkey_bar, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_softkey_bar, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(s_softkey_bar, 2, LV_PART_MAIN);
+    /* 1. Top Status Bar */
+    create_status_bar(scr);
 
-    s_lbl_lsk = lv_label_create(s_softkey_bar);
-    lv_label_set_text(s_lbl_lsk, "LSK: Next");
-    lv_obj_set_style_text_color(s_lbl_lsk, lv_color_hex(0x90A4AE), LV_PART_MAIN);
-    lv_obj_align(s_lbl_lsk, LV_ALIGN_LEFT_MID, 4, 0);
+    /* 2. Create View Containers */
+    create_home_view(scr);
+    create_dialer_view(scr);
+    create_torch_view(scr);
+    create_debug_view(scr);
+    create_settings_view(scr);
 
-    s_lbl_ok = lv_label_create(s_softkey_bar);
-    lv_label_set_text(s_lbl_ok, "OK: Select");
-    lv_obj_set_style_text_color(s_lbl_ok, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_align(s_lbl_ok, LV_ALIGN_CENTER, 0, 0);
+    /* 3. Bottom Softkey Bar */
+    create_softkey_bar(scr);
 
-    s_lbl_rsk = lv_label_create(s_softkey_bar);
-    lv_label_set_text(s_lbl_rsk, "RSK: Clear");
-    lv_obj_set_style_text_color(s_lbl_rsk, lv_color_hex(0x90A4AE), LV_PART_MAIN);
-    lv_obj_align(s_lbl_rsk, LV_ALIGN_RIGHT_MID, -4, 0);
-
-    /* Focus on Dialpad by default */
-    lv_group_focus_obj(s_btnm_dial);
-
-    /* Register global key listener on the active screen */
+    /* 4. Register Global Keypad Event Callback */
     lv_obj_add_event_cb(scr, screen_key_event_cb, LV_EVENT_KEY, NULL);
 
-    /* Periodic 1-Second Uptime & Telemetry Timer */
+    /* 5. Set initial view to HOME */
+    switch_view(VIEW_HOME);
+
+    /* 6. Periodic 1-Second Uptime & Telemetry Timer */
     lv_timer_create(ui_timer_cb, 1000, NULL);
 }
 

@@ -23,7 +23,7 @@ extern uint32_t __heap_end;
 extern uint32_t __mmu_table_start;
 
 /*
- * Thread 1: Optical Heartbeat & Watchdog Sentinel
+ * Thread 1: Hardware Watchdog Sentinel Task
  * Runs as an independent RTOS thread with priority 15.
  */
 static void torch_beacon_entry(void *parameter)
@@ -31,35 +31,17 @@ static void torch_beacon_entry(void *parameter)
     (void)parameter;
     uint32_t beat_count = 0;
 
-    rt_kprintf("[THREAD:torch] Optical heartbeat beacon task started (prio 15)\n");
-
-    /* 3 greeting pulses to signal thread launch */
-    for (int i = 0; i < 3; i++) {
-        torch_set(1, 0x0F);
-        rt_thread_mdelay(80);
-        torch_set(0, 0);
-        rt_thread_mdelay(80);
-    }
-    rt_thread_mdelay(300);
+    rt_kprintf("[THREAD:sentinel] Hardware watchdog sentinel task started (prio 15)\n");
 
     while (1) {
         beat_count++;
         watchdog_pet();
 
-        /* Double optical pulse: thump-thump */
-        torch_set(1, 0x0F);
-        rt_thread_mdelay(60);
-        torch_set(0, 0);
-        rt_thread_mdelay(120);
-        torch_set(1, 0x0F);
-        rt_thread_mdelay(80);
-        torch_set(0, 0);
-
-        rt_kprintf("[HEARTBEAT] Thread pulse #%u | OS Tick: %u | HW Timer: %u ms\n",
+        rt_kprintf("[SENTINEL] Keepalive pulse #%u | OS Tick: %u | HW Timer: %u ms\n",
                    beat_count, (uint32_t)rt_tick_get(), timer_get_ms());
 
-        /* Sleep for 1000 ms, yielding CPU to other tasks and idle thread */
-        rt_thread_mdelay(1000);
+        /* Sleep for 2000 ms, yielding CPU to other tasks and idle thread */
+        rt_thread_mdelay(2000);
     }
 }
 
@@ -95,10 +77,7 @@ static void sys_reporter_entry(void *parameter)
  */
 int main(void)
 {
-    /* 1. Optical Sign of Life: 3 flashes confirm RT-Thread OS booted & main thread active */
-    torch_blink(3, 80, 80, 0x0F);
-
-    /* 2. Run OpenFeatureOS Animated Boot Splash Screen for exactly 5.0 seconds (5000 ms) */
+    /* 1. Run OpenFeatureOS v1.0 Animated Boot Splash Screen for exactly 5.0 seconds */
     lcdc_run_boot_splash(5000);
 
     rt_kprintf("\n");

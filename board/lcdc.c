@@ -136,9 +136,12 @@ static void delay_cycles(uint32_t count)
 
 static void delay_ms(uint32_t ms)
 {
-    uint32_t t0 = timer_get_ms();
-    while ((timer_get_ms() - t0) < ms) {
-        __asm__ volatile ("nop");
+    /* 1.0 GHz Cortex-A7: ~200,000 NOP iterations per ms with watchdog petting */
+    while (ms--) {
+        watchdog_pet();
+        for (volatile uint32_t i = 0; i < 200000U; i++) {
+            __asm__ volatile ("nop");
+        }
     }
 }
 
@@ -207,16 +210,6 @@ static void spi_refresh_init(spi_hw_t *spi) {
     spi->ctl7 |= 0x80U; /* SPI_TX_HLD_EN */
     spi_set_cd_bit(spi, 1);
     spi_set_chnl_len(spi, 16);
-}
-
-static void spi_refresh_next(spi_hw_t *spi) {
-    unsigned len = LCD_WIDTH * LCD_HEIGHT;
-    uint32_t timeout = 500000U;
-    while (!(spi->sts2 & (1U << 7)) && --timeout);
-    timeout = 500000U;
-    while ((spi->sts2 & (1U << 8)) && --timeout);
-    spi_set_tx_len(spi, len, 0);
-    spi->ctl12 |= 2U;
 }
 
 static void lcm_reset(uint32_t delay_val) {
@@ -419,40 +412,20 @@ void lcdc_init(void)
 void lcdc_flush(void)
 {
     uint32_t fb_addr = (uint32_t)(uintptr_t)g_framebuffer;
-    spi_hw_t *spi = SPI1_DEV;
     lcdc_hw_t *lcdc = LCDC_DEV;
 
-    /* 1. Reset GC9307 page write address to 0x2C (RAMWR) */
-    uint32_t timeout = 500000U;
-    while (!(spi->sts2 & (1U << 7)) && --timeout);
-    timeout = 500000U;
-    while ((spi->sts2 & (1U << 8)) && --timeout);
-
-    spi->ctl7 &= ~(1U << 14); /* RGB565_EN */
-    spi_set_chnl_len(spi, 8);
-    spi1_send(0, 0x2C);
-    spi_set_chnl_len(spi, 16);
-
-    /* 2. Flush data cache so DMA sees updated framebuffer in DRAM */
+    /* 1. Flush data cache so DMA sees updated framebuffer in DRAM */
     dcache_clean_range(fb_addr, fb_addr + LCD_FB_SIZE);
 
-    /* 3. Prepare SPI1 for bulk DMA transfer of 76,800 pixels */
-    spi_refresh_next(spi);
+    /* 2. Trigger LCDC refresh */
+    lcdc->ctrl |= 8U; /* Bit 3 = Start Refresh */
 
-    /* 4. Trigger LCDC refresh */
-    lcdc->irq.en |= 1U;
-    lcdc->ctrl |= 8U; /* Start refresh */
-
-    /* 5. Wait for LCDC refresh completion */
-    timeout = 500000U;
-    while (!(lcdc->irq.raw & 1U) && --timeout);
-    lcdc->irq.clr |= 1U;
-
-    /* 6. Wait for SPI1 TX FIFO empty and not busy */
-    timeout = 500000U;
-    while (!(spi->sts2 & (1U << 7)) && --timeout);
-    timeout = 500000U;
-    while ((spi->sts2 & (1U << 8)) && --timeout);
+    /* 3. Wait for LCDC refresh completion */
+    uint32_t timeout = 1000000U;
+    while (!(lcdc->irq.raw & 1U) && --timeout) {
+        watchdog_pet();
+    }
+    lcdc->irq.clr = 1U;
 }
 
 void lcdc_clear(uint16_t color)
@@ -573,48 +546,39 @@ void lcdc_draw_string_centered_scale(int y, const char *str, uint16_t fg, uint16
 
 void lcdc_draw_boot_splash_static(void)
 {
-    /* 1. Deep space background */
-    lcdc_clear(COLOR_DARK_BG);
+    /* 1. Deep Midnight Black background */
+    lcdc_clear(0x0000);
 
-    /* 2. Top Header Accent Banner */
-    lcdc_fill_rect(0, 0, LCD_WIDTH, 26, COLOR_NOKIA_BLUE);
-    lcdc_fill_rect(0, 26, LCD_WIDTH, 2, COLOR_CYAN_ACCENT);
-    lcdc_draw_string_centered(6, "NOKIA 2660 FLIP  (TA-1480)", COLOR_WHITE, COLOR_NOKIA_BLUE);
+    /* 2. Sleek OS Emblem / Logo Badge at y = 56 */
+    /* Outer glowing cyan rounded box */
+    lcdc_fill_rect(96, 56, 48, 48, COLOR_CYAN_ACCENT);
+    lcdc_fill_rect(100, 60, 40, 40, 0x0000);
+    /* Cyan diagonal accent and center white core */
+    lcdc_fill_rect(108, 68, 24, 24, COLOR_CYAN_ACCENT);
+    lcdc_fill_rect(112, 72, 16, 16, COLOR_WHITE);
 
-    /* 3. Hero Brand Title - 2x Scale Typography */
-    /* "OpenFeatureOS" = 13 chars * 16px = 208px wide (centered at x=16) */
-    lcdc_draw_string_centered_scale(44, "OpenFeatureOS", COLOR_WHITE, COLOR_DARK_BG, 2);
-    /* Cyan glowing separator line */
-    lcdc_fill_rect(24, 82, LCD_WIDTH - 48, 2, COLOR_CYAN_ACCENT);
-    lcdc_draw_string_centered(90, "Next-Gen 4G Feature Phone OS", COLOR_CYAN_ACCENT, COLOR_DARK_BG);
-    lcdc_draw_string_centered(108, "v0.1.0-alpha (RT-Thread 5.4.0)", COLOR_LIGHT_GRAY, COLOR_DARK_BG);
+    /* 3. Hero Brand Title: 2x Scaled "OpenFeatureOS" */
+    lcdc_draw_string_centered_scale(120, "OpenFeatureOS", COLOR_WHITE, 0x0000, 2);
 
-    /* 4. Hardware Telemetry Card */
-    lcdc_fill_rect(10, 130, LCD_WIDTH - 20, 72, COLOR_CARD_BG);
-    lcdc_fill_rect(10, 130, 4, 72, COLOR_GREEN); /* Green indicator pill */
-    lcdc_draw_string(20, 136, "SoC   : Unisoc T107 1.0 GHz", COLOR_WHITE, COLOR_CARD_BG);
-    lcdc_draw_string(20, 152, "Memory: 48 MB LPDDR (DRAM)", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
-    lcdc_draw_string(20, 168, "Screen: GC9307 240x320 QVGA", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
-    lcdc_draw_string(20, 184, "Safety: ZERO NAND WRITES", COLOR_YELLOW, COLOR_CARD_BG);
+    /* 4. OS Version */
+    lcdc_draw_string_centered(158, "v1.0", COLOR_CYAN_ACCENT, 0x0000);
+    lcdc_draw_string_centered(176, "Lightweight 4G Mobile Platform", COLOR_LIGHT_GRAY, 0x0000);
 
-    /* 5. Boot Progress Card Outer Frame */
-    lcdc_fill_rect(10, 210, LCD_WIDTH - 20, 74, COLOR_CARD_BG);
-    lcdc_fill_rect(10, 210, 4, 74, COLOR_CYAN_ACCENT); /* Cyan indicator pill */
+    /* 5. Minimalist Progress Bar Frame at y = 224 */
+    int bar_x = 30;
+    int bar_y = 224;
+    int bar_w = LCD_WIDTH - 60; /* 180 px wide */
+    int bar_h = 6;
+    lcdc_fill_rect(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2, 0x2965); /* Frame */
+    lcdc_fill_rect(bar_x, bar_y, bar_w, bar_h, 0x0842);                 /* Track */
 
-    /* Progress Bar Outer Track */
-    int bar_x = 20;
-    int bar_y = 236;
-    int bar_w = LCD_WIDTH - 40; /* 200 px wide */
-    int bar_h = 12;
-    lcdc_fill_rect(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2, COLOR_GRAY);
-    lcdc_fill_rect(bar_x, bar_y, bar_w, bar_h, COLOR_BLACK);
+    /* 6. Initial Status line */
+    lcdc_draw_string_centered(242, "Starting OpenFeatureOS...", COLOR_LIGHT_GRAY, 0x0000);
 
-    /* 6. Bottom Security & Integrity Footer */
-    lcdc_fill_rect(0, 296, LCD_WIDTH, 24, COLOR_BLACK);
-    lcdc_fill_rect(0, 294, LCD_WIDTH, 2, 0x18E3);
-    lcdc_draw_string_centered(300, "100% Volatile DRAM Execution", COLOR_GREEN, COLOR_BLACK);
+    /* 7. Footer */
+    lcdc_draw_string_centered(296, "Volatile DRAM Execution", COLOR_GRAY, 0x0000);
 
-    /* Initial render to panel */
+    /* Flush initial splash to panel */
     lcdc_flush();
 }
 
@@ -623,42 +587,27 @@ void lcdc_update_boot_progress(int progress_pct, const char *status_msg)
     if (progress_pct < 0) progress_pct = 0;
     if (progress_pct > 100) progress_pct = 100;
 
-    /* 1. Update Percentage Text */
-    char pct_str[24];
-    pct_str[0] = 'B'; pct_str[1] = 'o'; pct_str[2] = 'o'; pct_str[3] = 't';
-    pct_str[4] = ' '; pct_str[5] = 'P'; pct_str[6] = 'r'; pct_str[7] = 'o';
-    pct_str[8] = 'g'; pct_str[9] = 'r'; pct_str[10] = 'e'; pct_str[11] = 's';
-    pct_str[12] = 's'; pct_str[13] = ':'; pct_str[14] = ' ';
-    pct_str[15] = (progress_pct == 100) ? '1' : ' ';
-    pct_str[16] = (progress_pct >= 100) ? '0' : ((progress_pct >= 10) ? ('0' + (progress_pct / 10)) : ' ');
-    pct_str[17] = '0' + (progress_pct % 10);
-    pct_str[18] = '%';
-    pct_str[19] = '\0';
-    lcdc_fill_rect(20, 216, 180, 16, COLOR_CARD_BG);
-    lcdc_draw_string(20, 216, pct_str, COLOR_WHITE, COLOR_CARD_BG);
-
-    /* 2. Update Progress Bar Fill */
-    int bar_x = 20;
-    int bar_y = 236;
-    int bar_w = LCD_WIDTH - 40; /* 200 px wide */
-    int bar_h = 12;
+    int bar_x = 30;
+    int bar_y = 224;
+    int bar_w = LCD_WIDTH - 60; /* 180 px wide */
+    int bar_h = 6;
     int fill_w = (progress_pct * bar_w) / 100;
     if (fill_w > bar_w) fill_w = bar_w;
 
-    /* Fill active portion */
+    /* Fill active progress bar portion */
     if (fill_w > 0) {
         lcdc_fill_rect(bar_x, bar_y, fill_w, bar_h, COLOR_CYAN_ACCENT);
-        lcdc_fill_rect(bar_x, bar_y, fill_w, 2, COLOR_WHITE);
+        lcdc_fill_rect(bar_x, bar_y, fill_w, 1, COLOR_WHITE);
     }
     /* Clear unreached portion */
     if (fill_w < bar_w) {
-        lcdc_fill_rect(bar_x + fill_w, bar_y, bar_w - fill_w, bar_h, COLOR_BLACK);
+        lcdc_fill_rect(bar_x + fill_w, bar_y, bar_w - fill_w, bar_h, 0x0842);
     }
 
-    /* 3. Update Status Message Text */
+    /* Update Status Message Text */
     if (status_msg) {
-        lcdc_fill_rect(20, 258, 200, 16, COLOR_CARD_BG);
-        lcdc_draw_string(20, 258, status_msg, COLOR_CYAN_ACCENT, COLOR_CARD_BG);
+        lcdc_fill_rect(0, 242, LCD_WIDTH, 16, 0x0000);
+        lcdc_draw_string_centered(242, status_msg, COLOR_LIGHT_GRAY, 0x0000);
     }
 
     lcdc_flush();
@@ -673,12 +622,12 @@ void lcdc_draw_boot_splash(void)
 void lcdc_run_boot_splash(uint32_t duration_ms)
 {
     if (duration_ms == 0) duration_ms = 5000;
-    uint32_t total_steps = 25; /* 25 steps of 200 ms = 5000 ms */
+    uint32_t total_steps = 50; /* 50 steps of 100 ms = 5000 ms */
     uint32_t step_delay = duration_ms / total_steps;
 
-    kprintf("[SPLASH] Launching OpenFeatureOS animated boot splash (%u ms)...\n", duration_ms);
+    kprintf("[SPLASH] Launching OpenFeatureOS v1.0 animated boot splash (%u ms)...\n", duration_ms);
 
-    /* Draw static backdrop card once */
+    /* Render static splash elements once */
     lcdc_draw_boot_splash_static();
 
     for (uint32_t step = 0; step <= total_steps; step++) {
@@ -686,17 +635,17 @@ void lcdc_run_boot_splash(uint32_t duration_ms)
         const char *status_msg;
 
         if (pct < 15) {
-            status_msg = "Powering Unisoc T107 Core...";
+            status_msg = "Starting OpenFeatureOS...";
         } else if (pct < 35) {
-            status_msg = "Mounting ARMv7 MMU & DRAM...";
+            status_msg = "Initializing Kernel Core...";
         } else if (pct < 55) {
-            status_msg = "Starting RTOS Multitasking...";
+            status_msg = "Mounting System Services...";
         } else if (pct < 75) {
             status_msg = "Calibrating GC9307 Display...";
-        } else if (pct < 90) {
-            status_msg = "Probing Keypad & PMIC Matrix...";
+        } else if (pct < 95) {
+            status_msg = "Starting Feature Phone UI...";
         } else {
-            status_msg = "Ready! Launching Home UI...";
+            status_msg = "Welcome to OpenFeatureOS!";
         }
 
         watchdog_pet();
@@ -707,7 +656,7 @@ void lcdc_run_boot_splash(uint32_t duration_ms)
         }
     }
 
-    kprintf("[SPLASH] Boot splash sequence completed (100%%). Transitioning to Home UI.\n");
+    kprintf("[SPLASH] Boot splash sequence completed (100%%). Launching Home UI.\n");
 }
 
 void lcdc_update_heartbeat(uint32_t beat_count, uint32_t uptime_s)

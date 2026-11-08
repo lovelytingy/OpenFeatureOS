@@ -132,9 +132,6 @@ void rt_hw_board_init(void)
     rt_components_board_init();
 #endif
 
-    /* 14. Optical Sign of Life: 2 flashes confirm BSP, MMU, & Display initialized */
-    torch_blink(2, 60, 60, 0x0F);
-
     /* NOTE: CPU IRQs are unmasked when the first thread starts via rt_hw_context_switch_to() */
     kprintf("[BOARD] Board initialization completed successfully.\n");
 }
