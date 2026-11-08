@@ -147,11 +147,11 @@ reset_handler:
     ldr     r1, =0x00000002     /* Stage: C Runtime Ready */
     str     r1, [r0, #0x08]
 
-    /* 11. Early hardware bringup & C entry */
+    /* 11. Early hardware bringup & RT-Thread entry */
     bl      board_early_init
-    bl      main
+    bl      rtthread_startup
 
-    /* 12. Safe hang loop if main() returns */
+    /* 12. Safe hang loop if rtthread_startup() returns */
 hang_loop:
     wfi
     b       hang_loop
@@ -159,7 +159,7 @@ hang_loop:
     .size reset_handler, . - reset_handler
 
 /* ============================================================================
- * Section 3: Default Exception Traps
+ * Section 3: Default Exception Traps & RT-Thread IRQ Context Switch
  * ============================================================================
  */
     .section .text, "ax", %progbits
@@ -176,7 +176,6 @@ undef_handler:
     .global svc_handler
     .type svc_handler, %function
 svc_handler:
-    /* Stub SVC handler - will be replaced during RT-Thread scheduler port */
     movs    pc, lr
 
     .global pabt_handler
@@ -209,22 +208,61 @@ hyp_handler:
     .global irq_handler
     .type irq_handler, %function
 irq_handler:
-    /* Adjust return address: in IRQ mode, LR points to (next PC + 4) */
-    sub     lr, lr, #4
-    /* Save LR_irq and SPSR_irq onto the SVC mode stack */
-    srsdb   sp!, #MODE_SVC
-    /* Switch CPU to Supervisor (SVC) mode */
-    cps     #MODE_SVC
-    /* Save AAPCS caller-saved registers */
-    push    {r0-r3, r12, lr}
+    /* Save full register context on IRQ mode stack */
+    stmfd   sp!, {r0-r12, lr}
 
-    /* Call C interrupt dispatcher */
+    /* Notify RT-Thread OS of interrupt entry */
+    bl      rt_interrupt_enter
+
+    /* Dispatch peripheral interrupts */
     bl      irq_dispatch
 
-    /* Restore caller-saved registers */
-    pop     {r0-r3, r12, lr}
-    /* Return from exception: atomically restores PC and CPSR from SVC stack */
-    rfeia   sp!
+    /* Notify RT-Thread OS of interrupt departure */
+    bl      rt_interrupt_leave
+
+    /* Check if the scheduler requested a thread switch inside ISR */
+    ldr     r0, =rt_thread_switch_interrupt_flag
+    ldr     r1, [r0]
+    cmp     r1, #1
+    beq     rt_hw_context_switch_interrupt_do
+
+    /* Fast path: No context switch. Restore from IRQ stack and return */
+    ldmfd   sp!, {r0-r12, lr}
+    subs    pc, lr, #4
+
+rt_hw_context_switch_interrupt_do:
+    mov     r1, #0
+    str     r1, [r0]            /* Clear rt_thread_switch_interrupt_flag */
+
+    /* Transfer saved context from IRQ stack to preempted thread's SVC stack */
+    mov     r0, sp              /* r0 = pointer to saved r0-r3 on IRQ stack */
+    add     sp, sp, #(4 * 4)    /* Advance IRQ sp past r0-r3 */
+    ldmfd   sp!, {r4-r12, lr}   /* Restore r4-r12, lr_irq from IRQ stack */
+    mrs     r0, spsr            /* Save interrupted thread's CPSR into r0 (preserves r6) */
+    sub     r2, lr, #4          /* Interrupted thread's PC into r2 */
+
+    /* Switch CPU to Supervisor (SVC) mode with interrupts masked */
+    msr     cpsr_c, #(MODE_SVC | NO_INT)
+
+    /* Push preempted thread's full register frame onto its SVC stack */
+    stmfd   sp!, {r2}           /* PC */
+    stmfd   sp!, {r4-r12, lr}   /* LR, R12-R4 */
+    ldmfd   r0, {r1-r4}         /* Load original task r0-r3 from r0 */
+    stmfd   sp!, {r1-r4}        /* R3-R0 */
+    stmfd   sp!, {r0}           /* CPSR */
+
+    /* Store updated SVC SP into preempted thread's TCB: *rt_interrupt_from_thread = sp */
+    ldr     r4, =rt_interrupt_from_thread
+    ldr     r5, [r4]
+    str     sp, [r5]
+
+    /* Load new thread's SVC SP: sp = *rt_interrupt_to_thread */
+    ldr     r6, =rt_interrupt_to_thread
+    ldr     r6, [r6]
+    ldr     sp, [r6]
+
+    /* Resume new thread via standard context switch exit */
+    b       rt_hw_context_switch_exit
 
     .global fiq_handler
     .type fiq_handler, %function

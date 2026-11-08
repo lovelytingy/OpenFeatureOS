@@ -33,6 +33,29 @@ SECTIONS
         . = ALIGN(0x2000);
         *(.text .text.*)
         *(.rodata .rodata.* .gnu.linkonce.r.*)
+
+        /* RT-Thread Finsh shell symbol tables */
+        . = ALIGN(4);
+        __fsymtab_start = .;
+        KEEP(*(FSymTab))
+        __fsymtab_end = .;
+        . = ALIGN(4);
+        __vsymtab_start = .;
+        KEEP(*(VSymTab))
+        __vsymtab_end = .;
+
+        /* RT-Thread module symbol tables */
+        . = ALIGN(4);
+        __rtmsymtab_start = .;
+        KEEP(*(RTMSymTab))
+        __rtmsymtab_end = .;
+
+        /* RT-Thread automatic component initialization section */
+        . = ALIGN(4);
+        __rt_init_start = .;
+        KEEP(*(SORT(.rti_fn*)))
+        __rt_init_end = .;
+
         . = ALIGN(4);
         __text_end = .;
     } > DRAM

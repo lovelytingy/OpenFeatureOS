@@ -22,17 +22,23 @@ CFLAGS         = $(ARCH_FLAGS) \
                  -Wall -Wextra -Werror=implicit-function-declaration \
                  -O2 -g \
                  -ffreestanding -fno-builtin -nostdlib \
-                 -Iinclude -Iboard
+                 -fno-tree-loop-distribute-patterns \
+                 -D__RT_KERNEL_SOURCE__ \
+                 -Iinclude -Iboard \
+                 -Ithird_party/rt-thread/include \
+                 -Ithird_party/rt-thread/libcpu/arm/cortex-a
 
 # Assembly flags
 AFLAGS         = $(ARCH_FLAGS) \
                  -x assembler-with-cpp \
                  -g \
-                 -Iinclude -Iboard
+                 -Iinclude -Iboard \
+                 -Ithird_party/rt-thread/include \
+                 -Ithird_party/rt-thread/libcpu/arm/cortex-a
 
 # Linker script and flags
 LDSCRIPT       = board/link.ld
-LDFLAGS        = -T $(LDSCRIPT) -nostdlib -Wl,--gc-sections
+LDFLAGS        = -T $(LDSCRIPT) -nostdlib -Wl,--gc-sections -lgcc
 
 # Output build directory
 BUILD_DIR      = build
@@ -41,7 +47,26 @@ TARGET_RAW     = $(BUILD_DIR)/openfeatureos.raw
 TARGET_BIN     = $(BUILD_DIR)/openfeatureos.bin
 
 # Sources
-C_SRCS        := $(wildcard src/*.c) $(wildcard board/*.c)
+C_SRCS        := $(wildcard src/*.c) $(wildcard board/*.c) \
+                 third_party/rt-thread/src/clock.c \
+                 third_party/rt-thread/src/components.c \
+                 third_party/rt-thread/src/cpu_up.c \
+                 third_party/rt-thread/src/defunct.c \
+                 third_party/rt-thread/src/idle.c \
+                 third_party/rt-thread/src/ipc.c \
+                 third_party/rt-thread/src/irq.c \
+                 third_party/rt-thread/src/kservice.c \
+                 third_party/rt-thread/src/mem.c \
+                 third_party/rt-thread/src/object.c \
+                 third_party/rt-thread/src/scheduler_up.c \
+                 third_party/rt-thread/src/scheduler_comm.c \
+                 third_party/rt-thread/src/thread.c \
+                 third_party/rt-thread/src/timer.c \
+                 third_party/rt-thread/src/klibc/kerrno.c \
+                 third_party/rt-thread/src/klibc/kstdio.c \
+                 third_party/rt-thread/src/klibc/kstring.c \
+                 third_party/rt-thread/src/klibc/rt_vsnprintf_tiny.c
+
 ASM_SRCS      := $(wildcard board/*.S) $(wildcard src/*.S)
 
 OBJS          := $(patsubst %.c, $(BUILD_DIR)/%.o, $(C_SRCS)) \
