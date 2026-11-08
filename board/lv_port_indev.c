@@ -12,6 +12,7 @@
 #include "lv_port_indev.h"
 #include "t107_regs.h"
 #include "pmic_adi.h"
+#include "timer.h"
 #include "printk.h"
 #include <rtthread.h>
 
@@ -72,9 +73,9 @@ void keypad_hw_init(void)
 
     /* 3. Soft reset Keypad Controller */
     REG32(0x402E1008U) = 0x100U;
-    rt_thread_mdelay(2);
+    timer_delay_ms(2);
     REG32(0x402E2008U) = 0x100U;
-    rt_thread_mdelay(2);
+    timer_delay_ms(2);
 
     /* 4. Configure Keypad Scanner Parameters */
     KPD_INT_CLR = 0x0FFFU;

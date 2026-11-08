@@ -56,11 +56,15 @@ static void timer_tick_isr(uint32_t irq, void *data)
  */
 static void idle_hook(void)
 {
-    /* 1. Pet the hardware PMIC watchdog to prevent SoC reset */
-    watchdog_pet();
+    /* 1. Pet the hardware PMIC watchdog periodically (once per second, not on every cycle) */
+    static uint32_t last_wdg_pet_ms = 0;
+    uint32_t now_ms = timer_get_ms();
+    if (now_ms - last_wdg_pet_ms >= 1000U) {
+        last_wdg_pet_ms = now_ms;
+        watchdog_pet();
+    }
 
     /* 2. Check monotonic elapsed time on 1ms hardware counter */
-    uint32_t now_ms = timer_get_ms();
     uint32_t delta_ms = now_ms - last_tick_ms;
 
     /* RT_TICK_PER_SECOND = 100 -> 1 tick = 10 ms */
@@ -121,8 +125,8 @@ void rt_hw_board_init(void)
     /* 10. Initialize Display Pipeline (SPI1, GC9307 Panel, LCDC DMA Controller) */
     lcdc_init();
 
-    /* 11. Run OpenFeatureOS v1.0 animated boot splash for exactly 5.0 seconds */
-    lcdc_run_boot_splash(5000);
+    /* 11. Run OpenFeatureOS v1.0 animated boot splash for exactly 3.0 seconds */
+    lcdc_run_boot_splash(3000);
 
     /* 12. Register idle hook */
     rt_thread_idle_sethook(idle_hook);

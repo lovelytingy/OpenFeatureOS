@@ -128,15 +128,9 @@ int main(void)
         rt_kprintf("[MAIN] ERROR: Failed to create thread: reporter\n");
     }
 
-    /* Spawn Thread 3: LVGL GUI Feature Phone UI Task */
-    ui_app_init();
-
-    rt_kprintf("[MAIN] All kernel threads spawned. Main thread entering supervisor loop.\n");
-
-    while (1) {
-        /* Main supervisor thread sleeps and yields */
-        rt_thread_mdelay(10000);
-    }
+    /* Launch LVGL Feature Phone UI and enter main GUI event loop */
+    rt_kprintf("[MAIN] Spawning Feature Phone UI loop in main thread...\n");
+    ui_app_run();
 
     return 0;
 }

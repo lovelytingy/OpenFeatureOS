@@ -49,7 +49,7 @@
 /* Components & Auto-Initialization */
 #define RT_USING_COMPONENTS_INIT
 #define RT_USING_USER_MAIN
-#define RT_MAIN_THREAD_STACK_SIZE 4096
+#define RT_MAIN_THREAD_STACK_SIZE 8192
 #define RT_MAIN_THREAD_PRIORITY 10
 
 /* Architecture: ARM Cortex-A7 (ARMv7-A) UP */

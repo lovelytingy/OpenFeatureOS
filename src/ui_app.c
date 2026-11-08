@@ -957,12 +957,10 @@ static void create_openfeatureos_home(void)
 }
 
 /*
- * LVGL GUI Thread Entry Function
+ * Run OpenFeatureOS LVGL Graphics Engine and Main Event Loop
  */
-static void lvgl_ui_thread_entry(void *param)
+void ui_app_run(void)
 {
-    (void)param;
-
     kprintf("[LVGL] Initializing LVGL Graphics Engine v%d.%d.%d\n",
             LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
 
@@ -975,7 +973,11 @@ static void lvgl_ui_thread_entry(void *param)
     create_openfeatureos_home();
 
     kprintf("[LVGL] OpenFeatureOS Modern Home UI created successfully.\n");
-    kprintf("[LVGL] Entering main GUI event loop.\n");
+
+    /* Force immediate display refresh so transition happens right away */
+    lv_refr_now(NULL);
+
+    kprintf("[LVGL] First frame rendered to display panel. Entering GUI event loop.\n");
 
     while (1) {
         lv_timer_handler();
@@ -985,16 +987,5 @@ static void lvgl_ui_thread_entry(void *param)
 
 void ui_app_init(void)
 {
-    rt_thread_t ui_thread = rt_thread_create("lvgl_ui",
-                                            lvgl_ui_thread_entry,
-                                            RT_NULL,
-                                            8192,
-                                            16,
-                                            10);
-    if (ui_thread != RT_NULL) {
-        rt_thread_startup(ui_thread);
-        kprintf("[UI] Spawned LVGL GUI task successfully (Priority: 16, Stack: 8KB)\n");
-    } else {
-        kprintf("[UI] ERROR: Failed to spawn LVGL GUI task!\n");
-    }
+    ui_app_run();
 }

@@ -7,5 +7,6 @@
 #define UI_APP_H_
 
 void ui_app_init(void);
+void ui_app_run(void);
 
 #endif /* UI_APP_H_ */

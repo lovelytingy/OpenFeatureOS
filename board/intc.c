@@ -11,14 +11,6 @@
 #include "t107_regs.h"
 #include "printk.h"
 
-extern void reset_handler(void);
-extern void undef_handler(void);
-extern void svc_handler(void);
-extern void pabt_handler(void);
-extern void dabt_handler(void);
-extern void irq_handler(void);
-extern void fiq_handler(void);
-
 struct irq_desc {
     irq_handler_t handler;
     void         *data;
@@ -27,31 +19,11 @@ struct irq_desc {
 static struct irq_desc irq_table[MAX_IRQS];
 static uint32_t irq_count[MAX_IRQS];
 
-static void install_vector_table(uint32_t base)
-{
-    volatile uint32_t *vec = (volatile uint32_t *)base;
-
-    /* 8x 'ldr pc, [pc, #24]' (0xE59FF018) -> fetches target from &vec[i + 8] */
-    for (int i = 0; i < 8; i++) {
-        vec[i] = 0xE59FF018U;
-    }
-    vec[8]  = (uint32_t)(uintptr_t)reset_handler;
-    vec[9]  = (uint32_t)(uintptr_t)undef_handler;
-    vec[10] = (uint32_t)(uintptr_t)svc_handler;
-    vec[11] = (uint32_t)(uintptr_t)pabt_handler;
-    vec[12] = (uint32_t)(uintptr_t)dabt_handler;
-    vec[13] = 0U; /* Reserved */
-    vec[14] = (uint32_t)(uintptr_t)irq_handler;
-    vec[15] = (uint32_t)(uintptr_t)fiq_handler;
-}
-
 void intc_init(void)
 {
     kprintf("[INTC] Initializing Unisoc SPRD 32-Line Interrupt Controller at 0x%08x\n", SPRD_INTC_BASE);
 
-    /* 1. Install vector tables at DRAM base (0x80000000) and payload entry (0x80100200) */
-    install_vector_table(0x80000000U);
-    install_vector_table(0x80100200U);
+    /* 1. Vectors are already located at _vectors (0x80100200) in startup.S and pointed to by VBAR */
 
     /* 2. Disable all IRQ lines initially */
     SPRD_INTC_IRQ_DIS = 0xFFFFFFFFU;
