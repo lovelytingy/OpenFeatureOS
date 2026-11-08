@@ -38,9 +38,15 @@ void lcdc_flush(void);
 void lcdc_clear(uint16_t color);
 void lcdc_fill_rect(int x, int y, int w, int h, uint16_t color);
 void lcdc_draw_char(int x, int y, char c, uint16_t fg, uint16_t bg);
+void lcdc_draw_char_scale(int x, int y, char c, uint16_t fg, uint16_t bg, int scale);
 void lcdc_draw_string(int x, int y, const char *str, uint16_t fg, uint16_t bg);
+void lcdc_draw_string_scale(int x, int y, const char *str, uint16_t fg, uint16_t bg, int scale);
 void lcdc_draw_string_centered(int y, const char *str, uint16_t fg, uint16_t bg);
+void lcdc_draw_string_centered_scale(int y, const char *str, uint16_t fg, uint16_t bg, int scale);
 void lcdc_draw_boot_splash(void);
+void lcdc_draw_boot_splash_static(void);
+void lcdc_update_boot_progress(int progress_pct, const char *status_msg);
+void lcdc_run_boot_splash(uint32_t duration_ms);
 void lcdc_update_heartbeat(uint32_t beat_count, uint32_t uptime_s);
 
 #endif /* LCDC_H_ */

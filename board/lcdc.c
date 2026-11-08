@@ -17,6 +17,7 @@
 #include "printk.h"
 #include "mmu.h"
 #include "timer.h"
+#include "watchdog.h"
 
 extern uint8_t __framebuffer_start[];
 extern uint8_t __framebuffer_end[];
@@ -502,12 +503,51 @@ void lcdc_draw_char(int x, int y, char c, uint16_t fg, uint16_t bg)
     }
 }
 
+void lcdc_draw_char_scale(int x, int y, char c, uint16_t fg, uint16_t bg, int scale)
+{
+    if (c < 0x20 || c > 0x7E) return;
+    if (scale <= 1) {
+        lcdc_draw_char(x, y, c, fg, bg);
+        return;
+    }
+    const uint8_t *glyph = &font8x16[(c - 0x20) * 16];
+
+    for (int row = 0; row < 16; row++) {
+        uint8_t bits = glyph[row];
+        for (int sy = 0; sy < scale; sy++) {
+            int py = y + (row * scale) + sy;
+            if (py < 0 || py >= (int)LCD_HEIGHT) continue;
+            int row_offset = py * (int)LCD_WIDTH;
+
+            for (int col = 0; col < 8; col++) {
+                uint16_t pixel_color = (bits & (0x80 >> col)) ? fg : bg;
+                if (pixel_color == bg && bg == fg) continue;
+                for (int sx = 0; sx < scale; sx++) {
+                    int px = x + (col * scale) + sx;
+                    if (px < 0 || px >= (int)LCD_WIDTH) continue;
+                    g_framebuffer[row_offset + px] = pixel_color;
+                }
+            }
+        }
+    }
+}
+
 void lcdc_draw_string(int x, int y, const char *str, uint16_t fg, uint16_t bg)
 {
     while (*str) {
         lcdc_draw_char(x, y, *str++, fg, bg);
         x += 8;
         if (x + 8 > (int)LCD_WIDTH) break;
+    }
+}
+
+void lcdc_draw_string_scale(int x, int y, const char *str, uint16_t fg, uint16_t bg, int scale)
+{
+    if (scale < 1) scale = 1;
+    while (*str) {
+        lcdc_draw_char_scale(x, y, *str++, fg, bg, scale);
+        x += 8 * scale;
+        if (x + (8 * scale) > (int)LCD_WIDTH) break;
     }
 }
 
@@ -520,56 +560,154 @@ void lcdc_draw_string_centered(int y, const char *str, uint16_t fg, uint16_t bg)
     lcdc_draw_string(x, y, str, fg, bg);
 }
 
-void lcdc_draw_boot_splash(void)
+void lcdc_draw_string_centered_scale(int y, const char *str, uint16_t fg, uint16_t bg, int scale)
+{
+    if (scale < 1) scale = 1;
+    int len = 0;
+    while (str[len]) len++;
+    int total_w = len * 8 * scale;
+    int x = ((int)LCD_WIDTH - total_w) / 2;
+    if (x < 0) x = 0;
+    lcdc_draw_string_scale(x, y, str, fg, bg, scale);
+}
+
+void lcdc_draw_boot_splash_static(void)
 {
     /* 1. Deep space background */
     lcdc_clear(COLOR_DARK_BG);
 
-    /* 2. Top Header Banner: Nokia Blue with Cyan Accent Line */
-    lcdc_fill_rect(0, 0, LCD_WIDTH, 48, COLOR_NOKIA_BLUE);
-    lcdc_fill_rect(0, 48, LCD_WIDTH, 2, COLOR_CYAN_ACCENT);
+    /* 2. Top Header Accent Banner */
+    lcdc_fill_rect(0, 0, LCD_WIDTH, 26, COLOR_NOKIA_BLUE);
+    lcdc_fill_rect(0, 26, LCD_WIDTH, 2, COLOR_CYAN_ACCENT);
+    lcdc_draw_string_centered(6, "NOKIA 2660 FLIP  (TA-1480)", COLOR_WHITE, COLOR_NOKIA_BLUE);
 
-    lcdc_draw_string_centered(10, "OpenFeatureOS", COLOR_WHITE, COLOR_NOKIA_BLUE);
-    lcdc_draw_string_centered(28, "v0.1.0-alpha (RT-Thread)", COLOR_CYAN_ACCENT, COLOR_NOKIA_BLUE);
+    /* 3. Hero Brand Title - 2x Scale Typography */
+    /* "OpenFeatureOS" = 13 chars * 16px = 208px wide (centered at x=16) */
+    lcdc_draw_string_centered_scale(44, "OpenFeatureOS", COLOR_WHITE, COLOR_DARK_BG, 2);
+    /* Cyan glowing separator line */
+    lcdc_fill_rect(24, 82, LCD_WIDTH - 48, 2, COLOR_CYAN_ACCENT);
+    lcdc_draw_string_centered(90, "Next-Gen 4G Feature Phone OS", COLOR_CYAN_ACCENT, COLOR_DARK_BG);
+    lcdc_draw_string_centered(108, "v0.1.0-alpha (RT-Thread 5.4.0)", COLOR_LIGHT_GRAY, COLOR_DARK_BG);
 
-    /* 3. System Hardware Card */
-    lcdc_fill_rect(8, 58, LCD_WIDTH - 16, 76, COLOR_CARD_BG);
-    lcdc_fill_rect(8, 58, 4, 76, COLOR_GREEN); /* Green status pill */
-    lcdc_draw_string(18, 64, "SoC   : Unisoc T107 1.0GHz", COLOR_WHITE, COLOR_CARD_BG);
-    lcdc_draw_string(18, 82, "Target: Nokia 2660 (TA-1480)", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
-    lcdc_draw_string(18, 100, "Core  : ARM Cortex-A7 UP", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
-    lcdc_draw_string(18, 118, "Status: DRAM BOOT SUCCESS", COLOR_GREEN, COLOR_CARD_BG);
+    /* 4. Hardware Telemetry Card */
+    lcdc_fill_rect(10, 130, LCD_WIDTH - 20, 72, COLOR_CARD_BG);
+    lcdc_fill_rect(10, 130, 4, 72, COLOR_GREEN); /* Green indicator pill */
+    lcdc_draw_string(20, 136, "SoC   : Unisoc T107 1.0 GHz", COLOR_WHITE, COLOR_CARD_BG);
+    lcdc_draw_string(20, 152, "Memory: 48 MB LPDDR (DRAM)", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
+    lcdc_draw_string(20, 168, "Screen: GC9307 240x320 QVGA", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
+    lcdc_draw_string(20, 184, "Safety: ZERO NAND WRITES", COLOR_YELLOW, COLOR_CARD_BG);
 
-    /* 4. Memory & Display Card */
-    lcdc_fill_rect(8, 142, LCD_WIDTH - 16, 76, COLOR_CARD_BG);
-    lcdc_fill_rect(8, 142, 4, 76, COLOR_CYAN_ACCENT); /* Cyan status pill */
-    lcdc_draw_string(18, 148, "Memory: 48 MB LPDDR", COLOR_WHITE, COLOR_CARD_BG);
-    lcdc_draw_string(18, 166, "Heap  : 31.6 MB Free", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
-    lcdc_draw_string(18, 184, "Disp  : GC9307 240x320 RGB", COLOR_LIGHT_GRAY, COLOR_CARD_BG);
-    lcdc_draw_string(18, 202, "Safety: ZERO NAND WRITES", COLOR_YELLOW, COLOR_CARD_BG);
+    /* 5. Boot Progress Card Outer Frame */
+    lcdc_fill_rect(10, 210, LCD_WIDTH - 20, 74, COLOR_CARD_BG);
+    lcdc_fill_rect(10, 210, 4, 74, COLOR_CYAN_ACCENT); /* Cyan indicator pill */
 
-    /* 5. 8-Color Calibration Gradient Bars */
-    const uint16_t swatch[] = {
-        COLOR_WHITE, COLOR_CYAN_ACCENT, COLOR_YELLOW, COLOR_GREEN,
-        COLOR_MAGENTA, COLOR_RED, COLOR_BLUE, COLOR_GRAY
-    };
-    int bar_w = (LCD_WIDTH - 16) / 8;
-    for (int i = 0; i < 8; i++) {
-        lcdc_fill_rect(8 + (i * bar_w), 226, bar_w, 14, swatch[i]);
+    /* Progress Bar Outer Track */
+    int bar_x = 20;
+    int bar_y = 236;
+    int bar_w = LCD_WIDTH - 40; /* 200 px wide */
+    int bar_h = 12;
+    lcdc_fill_rect(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2, COLOR_GRAY);
+    lcdc_fill_rect(bar_x, bar_y, bar_w, bar_h, COLOR_BLACK);
+
+    /* 6. Bottom Security & Integrity Footer */
+    lcdc_fill_rect(0, 296, LCD_WIDTH, 24, COLOR_BLACK);
+    lcdc_fill_rect(0, 294, LCD_WIDTH, 2, 0x18E3);
+    lcdc_draw_string_centered(300, "100% Volatile DRAM Execution", COLOR_GREEN, COLOR_BLACK);
+
+    /* Initial render to panel */
+    lcdc_flush();
+}
+
+void lcdc_update_boot_progress(int progress_pct, const char *status_msg)
+{
+    if (progress_pct < 0) progress_pct = 0;
+    if (progress_pct > 100) progress_pct = 100;
+
+    /* 1. Update Percentage Text */
+    char pct_str[24];
+    pct_str[0] = 'B'; pct_str[1] = 'o'; pct_str[2] = 'o'; pct_str[3] = 't';
+    pct_str[4] = ' '; pct_str[5] = 'P'; pct_str[6] = 'r'; pct_str[7] = 'o';
+    pct_str[8] = 'g'; pct_str[9] = 'r'; pct_str[10] = 'e'; pct_str[11] = 's';
+    pct_str[12] = 's'; pct_str[13] = ':'; pct_str[14] = ' ';
+    pct_str[15] = (progress_pct == 100) ? '1' : ' ';
+    pct_str[16] = (progress_pct >= 100) ? '0' : ((progress_pct >= 10) ? ('0' + (progress_pct / 10)) : ' ');
+    pct_str[17] = '0' + (progress_pct % 10);
+    pct_str[18] = '%';
+    pct_str[19] = '\0';
+    lcdc_fill_rect(20, 216, 180, 16, COLOR_CARD_BG);
+    lcdc_draw_string(20, 216, pct_str, COLOR_WHITE, COLOR_CARD_BG);
+
+    /* 2. Update Progress Bar Fill */
+    int bar_x = 20;
+    int bar_y = 236;
+    int bar_w = LCD_WIDTH - 40; /* 200 px wide */
+    int bar_h = 12;
+    int fill_w = (progress_pct * bar_w) / 100;
+    if (fill_w > bar_w) fill_w = bar_w;
+
+    /* Fill active portion */
+    if (fill_w > 0) {
+        lcdc_fill_rect(bar_x, bar_y, fill_w, bar_h, COLOR_CYAN_ACCENT);
+        lcdc_fill_rect(bar_x, bar_y, fill_w, 2, COLOR_WHITE);
+    }
+    /* Clear unreached portion */
+    if (fill_w < bar_w) {
+        lcdc_fill_rect(bar_x + fill_w, bar_y, bar_w - fill_w, bar_h, COLOR_BLACK);
     }
 
-    /* 6. Multithreading Scheduler Status Card */
-    lcdc_fill_rect(8, 248, LCD_WIDTH - 16, 42, COLOR_CARD_BG);
-    lcdc_fill_rect(8, 248, 4, 42, COLOR_ORANGE);
-    lcdc_draw_string(18, 254, "RTOS  : RT-Thread 5.4.0", COLOR_WHITE, COLOR_CARD_BG);
-    lcdc_draw_string(18, 272, "Tasks : torch, reporter, gui", COLOR_ORANGE, COLOR_CARD_BG);
+    /* 3. Update Status Message Text */
+    if (status_msg) {
+        lcdc_fill_rect(20, 258, 200, 16, COLOR_CARD_BG);
+        lcdc_draw_string(20, 258, status_msg, COLOR_CYAN_ACCENT, COLOR_CARD_BG);
+    }
 
-    /* 7. Bottom Status Footer */
-    lcdc_fill_rect(0, 298, LCD_WIDTH, 22, 0x0000);
-    lcdc_draw_string_centered(302, "OpenFeatureOS Live on Device", COLOR_GREEN, 0x0000);
-
-    /* Flush initial frame buffer to LCD panel */
     lcdc_flush();
+}
+
+void lcdc_draw_boot_splash(void)
+{
+    lcdc_draw_boot_splash_static();
+    lcdc_update_boot_progress(100, "Ready! Launching Home UI...");
+}
+
+void lcdc_run_boot_splash(uint32_t duration_ms)
+{
+    if (duration_ms == 0) duration_ms = 5000;
+    uint32_t total_steps = 25; /* 25 steps of 200 ms = 5000 ms */
+    uint32_t step_delay = duration_ms / total_steps;
+
+    kprintf("[SPLASH] Launching OpenFeatureOS animated boot splash (%u ms)...\n", duration_ms);
+
+    /* Draw static backdrop card once */
+    lcdc_draw_boot_splash_static();
+
+    for (uint32_t step = 0; step <= total_steps; step++) {
+        int pct = (step * 100) / total_steps;
+        const char *status_msg;
+
+        if (pct < 15) {
+            status_msg = "Powering Unisoc T107 Core...";
+        } else if (pct < 35) {
+            status_msg = "Mounting ARMv7 MMU & DRAM...";
+        } else if (pct < 55) {
+            status_msg = "Starting RTOS Multitasking...";
+        } else if (pct < 75) {
+            status_msg = "Calibrating GC9307 Display...";
+        } else if (pct < 90) {
+            status_msg = "Probing Keypad & PMIC Matrix...";
+        } else {
+            status_msg = "Ready! Launching Home UI...";
+        }
+
+        watchdog_pet();
+        lcdc_update_boot_progress(pct, status_msg);
+
+        if (step < total_steps) {
+            delay_ms(step_delay);
+        }
+    }
+
+    kprintf("[SPLASH] Boot splash sequence completed (100%%). Transitioning to Home UI.\n");
 }
 
 void lcdc_update_heartbeat(uint32_t beat_count, uint32_t uptime_s)

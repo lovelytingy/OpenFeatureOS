@@ -58,9 +58,6 @@ static void torch_beacon_entry(void *parameter)
         rt_kprintf("[HEARTBEAT] Thread pulse #%u | OS Tick: %u | HW Timer: %u ms\n",
                    beat_count, (uint32_t)rt_tick_get(), timer_get_ms());
 
-        /* Update live display status footer with heartbeat tick & uptime */
-        lcdc_update_heartbeat(beat_count, timer_get_ms() / 1000U);
-
         /* Sleep for 1000 ms, yielding CPU to other tasks and idle thread */
         rt_thread_mdelay(1000);
     }
@@ -101,8 +98,8 @@ int main(void)
     /* 1. Optical Sign of Life: 3 flashes confirm RT-Thread OS booted & main thread active */
     torch_blink(3, 80, 80, 0x0F);
 
-    /* 2. Render OpenFeatureOS Boot Splash on GC9307 240x320 LCD */
-    lcdc_draw_boot_splash();
+    /* 2. Run OpenFeatureOS Animated Boot Splash Screen for exactly 5.0 seconds (5000 ms) */
+    lcdc_run_boot_splash(5000);
 
     rt_kprintf("\n");
     rt_kprintf("==============================================================\n");

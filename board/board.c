@@ -121,8 +121,8 @@ void rt_hw_board_init(void)
     /* 10. Initialize Display Pipeline (SPI1, GC9307 Panel, LCDC DMA Controller) */
     lcdc_init();
 
-    /* 11. Draw initial OpenFeatureOS boot splash to framebuffer and flush to panel */
-    lcdc_draw_boot_splash();
+    /* 11. Draw initial OpenFeatureOS static boot splash to framebuffer and flush to panel */
+    lcdc_draw_boot_splash_static();
 
     /* 12. Register idle hook */
     rt_thread_idle_sethook(idle_hook);
