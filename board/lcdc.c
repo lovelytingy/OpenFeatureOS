@@ -136,13 +136,7 @@ static void delay_cycles(uint32_t count)
 
 static void delay_ms(uint32_t ms)
 {
-    /* 1.0 GHz Cortex-A7: ~200,000 NOP iterations per ms with watchdog petting */
-    while (ms--) {
-        watchdog_pet();
-        for (volatile uint32_t i = 0; i < 200000U; i++) {
-            __asm__ volatile ("nop");
-        }
-    }
+    timer_delay_ms(ms);
 }
 
 static inline void spi_set_clkd(spi_hw_t *spi, int val) {
@@ -210,6 +204,16 @@ static void spi_refresh_init(spi_hw_t *spi) {
     spi->ctl7 |= 0x80U; /* SPI_TX_HLD_EN */
     spi_set_cd_bit(spi, 1);
     spi_set_chnl_len(spi, 16);
+}
+
+static void spi_refresh_next(spi_hw_t *spi) {
+    unsigned len = LCD_WIDTH * LCD_HEIGHT;
+    uint32_t timeout = 500000U;
+    while (!(spi->sts2 & (1U << 7)) && --timeout);
+    timeout = 500000U;
+    while ((spi->sts2 & (1U << 8)) && --timeout);
+    spi_set_tx_len(spi, len, 0);
+    spi->ctl12 |= 2U;
 }
 
 static void lcm_reset(uint32_t delay_val) {
@@ -412,20 +416,40 @@ void lcdc_init(void)
 void lcdc_flush(void)
 {
     uint32_t fb_addr = (uint32_t)(uintptr_t)g_framebuffer;
+    spi_hw_t *spi = SPI1_DEV;
     lcdc_hw_t *lcdc = LCDC_DEV;
 
-    /* 1. Flush data cache so DMA sees updated framebuffer in DRAM */
+    /* 1. Reset GC9307 page write address to 0x2C (RAMWR) */
+    uint32_t timeout = 500000U;
+    while (!(spi->sts2 & (1U << 7)) && --timeout);
+    timeout = 500000U;
+    while ((spi->sts2 & (1U << 8)) && --timeout);
+
+    spi->ctl7 &= ~(1U << 14); /* Clear RGB565_EN */
+    spi_set_chnl_len(spi, 8);
+    spi1_send(0, 0x2C);
+    spi_set_chnl_len(spi, 16);
+
+    /* 2. Flush data cache so DMA sees updated framebuffer in DRAM */
     dcache_clean_range(fb_addr, fb_addr + LCD_FB_SIZE);
 
-    /* 2. Trigger LCDC refresh */
+    /* 3. Prepare SPI1 for bulk DMA transfer of 76,800 pixels */
+    spi_refresh_next(spi);
+
+    /* 4. Trigger LCDC refresh */
+    lcdc->irq.en |= 1U;
     lcdc->ctrl |= 8U; /* Bit 3 = Start Refresh */
 
-    /* 3. Wait for LCDC refresh completion */
-    uint32_t timeout = 1000000U;
-    while (!(lcdc->irq.raw & 1U) && --timeout) {
-        watchdog_pet();
-    }
+    /* 5. Wait for LCDC refresh completion */
+    timeout = 1000000U;
+    while (!(lcdc->irq.raw & 1U) && --timeout);
     lcdc->irq.clr = 1U;
+
+    /* 6. Wait for SPI1 TX FIFO empty and not busy */
+    timeout = 500000U;
+    while (!(spi->sts2 & (1U << 7)) && --timeout);
+    timeout = 500000U;
+    while ((spi->sts2 & (1U << 8)) && --timeout);
 }
 
 void lcdc_clear(uint16_t color)
@@ -549,20 +573,19 @@ void lcdc_draw_boot_splash_static(void)
     /* 1. Deep Midnight Black background */
     lcdc_clear(0x0000);
 
-    /* 2. Sleek OS Emblem / Logo Badge at y = 56 */
+    /* 2. Sleek OS Emblem / Logo Badge at y = 65 */
     /* Outer glowing cyan rounded box */
-    lcdc_fill_rect(96, 56, 48, 48, COLOR_CYAN_ACCENT);
-    lcdc_fill_rect(100, 60, 40, 40, 0x0000);
-    /* Cyan diagonal accent and center white core */
-    lcdc_fill_rect(108, 68, 24, 24, COLOR_CYAN_ACCENT);
-    lcdc_fill_rect(112, 72, 16, 16, COLOR_WHITE);
+    lcdc_fill_rect(96, 65, 48, 48, COLOR_CYAN_ACCENT);
+    lcdc_fill_rect(100, 69, 40, 40, 0x0000);
+    /* Cyan center accent with white core */
+    lcdc_fill_rect(108, 77, 24, 24, COLOR_CYAN_ACCENT);
+    lcdc_fill_rect(112, 81, 16, 16, COLOR_WHITE);
 
     /* 3. Hero Brand Title: 2x Scaled "OpenFeatureOS" */
-    lcdc_draw_string_centered_scale(120, "OpenFeatureOS", COLOR_WHITE, 0x0000, 2);
+    lcdc_draw_string_centered_scale(130, "OpenFeatureOS", COLOR_WHITE, 0x0000, 2);
 
     /* 4. OS Version */
-    lcdc_draw_string_centered(158, "v1.0", COLOR_CYAN_ACCENT, 0x0000);
-    lcdc_draw_string_centered(176, "Lightweight 4G Mobile Platform", COLOR_LIGHT_GRAY, 0x0000);
+    lcdc_draw_string_centered(168, "v1.0", COLOR_CYAN_ACCENT, 0x0000);
 
     /* 5. Minimalist Progress Bar Frame at y = 224 */
     int bar_x = 30;
@@ -572,18 +595,13 @@ void lcdc_draw_boot_splash_static(void)
     lcdc_fill_rect(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2, 0x2965); /* Frame */
     lcdc_fill_rect(bar_x, bar_y, bar_w, bar_h, 0x0842);                 /* Track */
 
-    /* 6. Initial Status line */
-    lcdc_draw_string_centered(242, "Starting OpenFeatureOS...", COLOR_LIGHT_GRAY, 0x0000);
-
-    /* 7. Footer */
-    lcdc_draw_string_centered(296, "Volatile DRAM Execution", COLOR_GRAY, 0x0000);
-
     /* Flush initial splash to panel */
     lcdc_flush();
 }
 
 void lcdc_update_boot_progress(int progress_pct, const char *status_msg)
 {
+    (void)status_msg;
     if (progress_pct < 0) progress_pct = 0;
     if (progress_pct > 100) progress_pct = 100;
 
@@ -604,19 +622,13 @@ void lcdc_update_boot_progress(int progress_pct, const char *status_msg)
         lcdc_fill_rect(bar_x + fill_w, bar_y, bar_w - fill_w, bar_h, 0x0842);
     }
 
-    /* Update Status Message Text */
-    if (status_msg) {
-        lcdc_fill_rect(0, 242, LCD_WIDTH, 16, 0x0000);
-        lcdc_draw_string_centered(242, status_msg, COLOR_LIGHT_GRAY, 0x0000);
-    }
-
     lcdc_flush();
 }
 
 void lcdc_draw_boot_splash(void)
 {
     lcdc_draw_boot_splash_static();
-    lcdc_update_boot_progress(100, "Ready! Launching Home UI...");
+    lcdc_update_boot_progress(100, NULL);
 }
 
 void lcdc_run_boot_splash(uint32_t duration_ms)
@@ -632,24 +644,7 @@ void lcdc_run_boot_splash(uint32_t duration_ms)
 
     for (uint32_t step = 0; step <= total_steps; step++) {
         int pct = (step * 100) / total_steps;
-        const char *status_msg;
-
-        if (pct < 15) {
-            status_msg = "Starting OpenFeatureOS...";
-        } else if (pct < 35) {
-            status_msg = "Initializing Kernel Core...";
-        } else if (pct < 55) {
-            status_msg = "Mounting System Services...";
-        } else if (pct < 75) {
-            status_msg = "Calibrating GC9307 Display...";
-        } else if (pct < 95) {
-            status_msg = "Starting Feature Phone UI...";
-        } else {
-            status_msg = "Welcome to OpenFeatureOS!";
-        }
-
-        watchdog_pet();
-        lcdc_update_boot_progress(pct, status_msg);
+        lcdc_update_boot_progress(pct, NULL);
 
         if (step < total_steps) {
             delay_ms(step_delay);

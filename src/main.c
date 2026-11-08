@@ -77,9 +77,6 @@ static void sys_reporter_entry(void *parameter)
  */
 int main(void)
 {
-    /* 1. Run OpenFeatureOS v1.0 Animated Boot Splash Screen for exactly 5.0 seconds */
-    lcdc_run_boot_splash(5000);
-
     rt_kprintf("\n");
     rt_kprintf("==============================================================\n");
     rt_kprintf("       ____                   ______            __            \n");
