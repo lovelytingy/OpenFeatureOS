@@ -635,8 +635,8 @@ void lcdc_draw_boot_splash(void)
 
 void lcdc_run_boot_splash(uint32_t duration_ms)
 {
-    if (duration_ms == 0) duration_ms = 3000;
-    uint32_t total_steps = 50; /* 50 steps of 60 ms = 3000 ms */
+    if (duration_ms == 0) duration_ms = 2000;
+    uint32_t total_steps = 50; /* 50 steps of 40 ms = 2000 ms */
     uint32_t step_delay = duration_ms / total_steps;
 
     kprintf("[SPLASH] Launching OpenFeatureOS v1.0 animated boot splash (%u ms)...\n", duration_ms);

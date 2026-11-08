@@ -397,25 +397,26 @@ void ui_app_handle_key(uint32_t key)
             switch_view(VIEW_DIALER);
         } else if (key == '2') {
             torch_toggle_action();
-        } else if (key == '3') {
+        } else if (key == '3' || key == 0x1F) {
+            /* '3' or Shortcut key: open Debug Telemetry */
             switch_view(VIEW_DEBUG);
         } else if (key == '4') {
             switch_view(VIEW_SETTINGS);
-        } else if (key == LV_KEY_PREV || key == 'C') {
+        } else if (key == LV_KEY_PREV || key == 'C' || key == 0x01 || key == 0x08) {
             /* LSK or Green Call key: launch Dialer */
             switch_view(VIEW_DIALER);
-        } else if (key == LV_KEY_NEXT) {
+        } else if (key == LV_KEY_NEXT || key == 0x09) {
             /* RSK: Flashlight quick toggle */
             torch_toggle_action();
-        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT) {
+        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT || key == 0x04 || key == 0x06) {
             if (g_lvgl_keypad_group) {
                 lv_group_focus_prev(g_lvgl_keypad_group);
             }
-        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT) {
+        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT || key == 0x05 || key == 0x07) {
             if (g_lvgl_keypad_group) {
                 lv_group_focus_next(g_lvgl_keypad_group);
             }
-        } else if (key == LV_KEY_ENTER) {
+        } else if (key == LV_KEY_ENTER || key == 0x0D) {
             /* Center OK key: activate focused button */
             if (g_lvgl_keypad_group) {
                 lv_obj_t *focused = lv_group_get_focused(g_lvgl_keypad_group);
@@ -429,13 +430,13 @@ void ui_app_handle_key(uint32_t key)
             dialer_append_char((char)key);
         }
     } else if (s_current_view == VIEW_DIALER) {
-        if (key == LV_KEY_PREV || key == LV_KEY_ESC) {
+        if (key == LV_KEY_PREV || key == LV_KEY_ESC || key == 0x02 || key == 0x08) {
             /* LSK or End/Power key: Return to Home */
             switch_view(VIEW_HOME);
-        } else if (key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE) {
+        } else if (key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == 0x09 || key == 0x0E) {
             /* RSK or Back key: Delete digit */
             dialer_delete_char();
-        } else if (key == 'C' || key == LV_KEY_ENTER) {
+        } else if (key == 'C' || key == LV_KEY_ENTER || key == 0x01 || key == 0x0D) {
             /* Call button or OK: Simulate call */
             if (s_dial_len > 0) {
                 char msg[48];
@@ -450,36 +451,26 @@ void ui_app_handle_key(uint32_t key)
             dialer_append_char((char)key);
         }
     } else if (s_current_view == VIEW_TORCH) {
-        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC) {
+        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC ||
+            key == 0x02 || key == 0x08 || key == 0x09 || key == 0x0E) {
             switch_view(VIEW_HOME);
-        } else if (key == '2' || key == LV_KEY_ENTER) {
-            if (g_lvgl_keypad_group) {
-                lv_obj_t *focused = lv_group_get_focused(g_lvgl_keypad_group);
-                if (focused) {
-                    lv_event_send(focused, LV_EVENT_CLICKED, NULL);
-                } else {
-                    torch_toggle_action();
-                }
-            } else {
-                torch_toggle_action();
-            }
-        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT) {
-            if (g_lvgl_keypad_group) lv_group_focus_prev(g_lvgl_keypad_group);
-        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT) {
-            if (g_lvgl_keypad_group) lv_group_focus_next(g_lvgl_keypad_group);
+        } else if (key == '2' || key == LV_KEY_ENTER || key == 0x0D) {
+            torch_toggle_action();
         }
     } else if (s_current_view == VIEW_DEBUG) {
-        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC) {
+        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC ||
+            key == 0x02 || key == 0x08 || key == 0x09 || key == 0x0E) {
             switch_view(VIEW_HOME);
         }
     } else if (s_current_view == VIEW_SETTINGS) {
-        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC) {
+        if (key == LV_KEY_PREV || key == LV_KEY_NEXT || key == LV_KEY_BACKSPACE || key == LV_KEY_ESC ||
+            key == 0x02 || key == 0x08 || key == 0x09 || key == 0x0E) {
             switch_view(VIEW_HOME);
-        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT) {
+        } else if (key == LV_KEY_UP || key == LV_KEY_LEFT || key == 0x04 || key == 0x06) {
             if (g_lvgl_keypad_group) lv_group_focus_prev(g_lvgl_keypad_group);
-        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT) {
+        } else if (key == LV_KEY_DOWN || key == LV_KEY_RIGHT || key == 0x05 || key == 0x07) {
             if (g_lvgl_keypad_group) lv_group_focus_next(g_lvgl_keypad_group);
-        } else if (key == LV_KEY_ENTER) {
+        } else if (key == LV_KEY_ENTER || key == 0x0D) {
             if (g_lvgl_keypad_group) {
                 lv_obj_t *focused = lv_group_get_focused(g_lvgl_keypad_group);
                 if (focused) lv_event_send(focused, LV_EVENT_CLICKED, NULL);
@@ -1027,6 +1018,18 @@ static void create_openfeatureos_home(void)
 }
 
 /*
+ * Direct keypad event callback invoked from keypad_drain_events / keypad_read_cb
+ */
+static void on_keypad_event(int key, int is_down)
+{
+    if (is_down) {
+        kprintf("[KEYPAD:EVENT] Key Down: 0x%02X ('%c')\n",
+                key, (key >= 32 && key < 127) ? (char)key : '?');
+        ui_app_handle_key((uint32_t)key);
+    }
+}
+
+/*
  * Run OpenFeatureOS LVGL Graphics Engine and Main Event Loop
  */
 void ui_app_run(void)
@@ -1040,6 +1043,9 @@ void ui_app_run(void)
 
     kprintf("[LVGL] Display & Keypad drivers registered successfully.\n");
 
+    /* Register direct reactive keypad event handler */
+    keypad_set_event_handler(on_keypad_event);
+
     create_openfeatureos_home();
 
     kprintf("[LVGL] OpenFeatureOS Modern Home UI created successfully.\n");
@@ -1050,17 +1056,7 @@ void ui_app_run(void)
     kprintf("[LVGL] First frame rendered to display panel. Entering GUI event loop.\n");
 
     while (1) {
-        uint32_t is_down = 0;
-        static uint32_t s_loop_prev_down = 0;
-        uint32_t key = keypad_poll_raw(&is_down);
-
-        if (is_down && !s_loop_prev_down && key != 0) {
-            kprintf("[KEYPAD:DIRECT] Pressed: 0x%02x ('%c')\n",
-                    key, (key >= 32 && key < 127) ? (char)key : '?');
-            ui_app_handle_key(key);
-        }
-        s_loop_prev_down = is_down;
-
+        keypad_drain_events();
         lv_timer_handler();
         timer_delay_ms(10);
         rt_thread_yield();
