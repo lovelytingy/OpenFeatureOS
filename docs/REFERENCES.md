@@ -10,7 +10,7 @@ submodule pins, licenses, and citation guidelines used in the OpenFeatureOS proj
 | Submodule Path | Upstream Repository URL | Pinned Commit SHA | Upstream License | Status |
 |:---|:---|:---|:---|:---:|
 | `third_party/nokia-2660-re` | `https://github.com/lovelytingy/Nokia-2660-RE` | `ab55f8a8390a6f9d95d6a27f909a0dd17b104478` | GNU GPL v3.0 | Pinned |
-| `third_party/nokia-2660-emulator` | `https://github.com/lovelytingy/Nokia-2660-Emulator` | `85e71e65f1ccaa4a5e5d9da8a6968ebfbe891b8c` | MIT License | Pinned |
+| `third_party/nokia-2660-emulator` | `https://github.com/lovelytingy/Nokia-2660-Emulator` | `c67e7029cb6ba268ad26b01b3eb3d5c5f49b01bf` | MIT License | Pinned |
 | `third_party/rt-thread` | `https://github.com/RT-Thread/rt-thread.git` | `37d8b8d1d0b8b39d9238cd86dac2a1ae79d190c1` | Apache License 2.0 | Pinned |
 
 ---
@@ -33,7 +33,7 @@ submodule pins, licenses, and citation guidelines used in the OpenFeatureOS proj
 
 ### 2.2 Nokia-2660-Emulator (N2660Emu)
 * **Repository**: [https://github.com/lovelytingy/Nokia-2660-Emulator](https://github.com/lovelytingy/Nokia-2660-Emulator)
-* **Pinned Commit**: `85e71e65f1ccaa4a5e5d9da8a6968ebfbe891b8c`
+* **Pinned Commit**: `c67e7029cb6ba268ad26b01b3eb3d5c5f49b01bf`
 * **License**: MIT License
 * **Core Emulation Engine**: Pure Rust emulator (`crates/n2660-core`) using the Unicorn-engine FFI backend to simulate a single ARM Cortex-A7 (ARMv7-A) core up to 1.0 GHz with bit-exact MMIO hooks.
 * **Modeled Peripherals & Subsystems**:
